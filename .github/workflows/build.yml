@@ -1,0 +1,317 @@
+name: Build geoip
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Запуск каждый 3-й день в 03:00 UTC
+    - cron: '0 3 */3 * *'
+  push:
+    branches:
+      - main  # Измените на имя вашей основной ветки, если не 'main'
+    paths-ignore:
+      - "README.md"
+      - ".gitignore"
+      - "LICENSE"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Checkout v2fly/geoip
+        uses: actions/checkout@v6
+        with:
+          repository: v2fly/geoip
+          path: geoip
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: geoip/go.mod
+          cache: true
+          cache-dependency-path: geoip/go.sum
+
+      # Загружаем и применяем наши кастомные файлы до сборки инструмента
+      - name: Download custom config.json
+        run: |
+          curl -fsSL -o config.json https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/master/config.json
+
+      - name: Download custom ipset_ops.py
+        run: |
+          curl -fsSL -o ipset_ops.py https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/master/ipset_ops.py
+
+      - name: Overlay custom files over geoip
+        run: |
+          set -euo pipefail
+          cp -f config.json geoip/ 2>/dev/null || true # Копируем наш скаченный config.json
+          cp -f ipset_ops.py geoip/ 2>/dev/null || true # Копируем наш скаченный ipset_ops.py
+          # Копируем другие кастомные файлы, если они есть в корне вашего репо
+          # cp -f CUSTOM-LIST-ADD.txt geoip/ 2>/dev/null || true
+          # cp -f CUSTOM-LIST-DEL.txt geoip/ 2>/dev/null || true
+
+      - name: Set tag
+        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        run: |
+          set -euo pipefail
+          DAILY_TAG=$(date +%Y%m%d%H%M)
+          echo "DAILY_TAG=$DAILY_TAG" >> "$GITHUB_ENV"
+
+      - name: Create Tag
+        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { DAILY_TAG } = process.env
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${DAILY_TAG}`,
+              sha: context.sha
+            })
+
+      - name: Download inputs (IP lists + Geobases)
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          CURL="curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused"
+
+          $CURL -o refilterbeta.txt https://raw.githubusercontent.com/1andrevich/Re-filter-lists/refs/heads/beta/ipsum.lst
+          $CURL -o antifilterdownloadcommunity.txt https://community.antifilter.download/list/community.lst
+          $CURL -o refilter.txt https://raw.githubusercontent.com/1andrevich/Re-filter-lists/refs/heads/main/ipsum.lst
+          $CURL -o refiltercommunity.txt https://raw.githubusercontent.com/1andrevich/Re-filter-lists/refs/heads/main/community_ips.lst
+          $CURL -o antifilternetwork.txt https://antifilter.network/download/ip.lst
+          $CURL -o antifilternetworkcommunity.txt https://antifilter.network/downloads/custom.lst
+          $CURL -o cdn.lst https://raw.githubusercontent.com/mansourjabin/cdn-ip-database/refs/heads/main/data/cdn.lst
+          $CURL -o merged.sum https://raw.githubusercontent.com/PentiumB/CDN-RuleSet/refs/heads/main/release/merged.sum
+
+          $CURL -o geolite_ru.lst https://raw.githubusercontent.com/hydraponique/countrydb/refs/heads/main/output/geolite2-geo-whois-asn-country-ipv4/ru.lst
+          $CURL -o geolite_by.lst https://raw.githubusercontent.com/hydraponique/countrydb/refs/heads/main/output/geolite2-geo-whois-asn-country-ipv4/by.lst
+          $CURL -o ipinfo_ru.lst https://raw.githubusercontent.com/Davoyan/ipinfo/refs/heads/main/geo/geoip/ru.lst
+          $CURL -o ipinfo_by.lst https://raw.githubusercontent.com/Davoyan/ipinfo/refs/heads/main/geo/geoip/by.lst
+          $CURL -o dbip_ru.lst https://raw.githubusercontent.com/hydraponique/countrydb/refs/heads/main/output/dbip-country-ipv4/ru.lst
+          $CURL -o dbip_by.lst https://raw.githubusercontent.com/hydraponique/countrydb/refs/heads/main/output/dbip-country-ipv4/by.lst
+
+          rm -rf geolite2
+          mkdir -p geolite2
+          $CURL "https://dl.netsyms.net/dbs/geolite2/GeoLite2-Country-CSV.zip" -o geolite2/GeoLite2-Country-CSV.zip
+          unzip -o geolite2/GeoLite2-Country-CSV.zip -d geolite2
+          mv geolite2/GeoLite2-Country-CSV_*/* geolite2/
+          rmdir geolite2/GeoLite2-Country-CSV_* || true
+
+      - name: Build geoip tool
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          go mod download
+          go build -o geoip
+
+      # Подготовка списков RU/BY (новая логика)
+      - name: Generate geoip artifacts (RU/BY preparation)
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          rm -rf tmp output
+          mkdir -p tmp/text output/dat output/text
+
+          rm -f ./tmp/text/prepare.txt
+          : > ./tmp/text/prepare.txt
+          for f in ./geolite_ru.lst ./geolite_by.lst ./ipinfo_ru.lst ./ipinfo_by.lst ./dbip_ru.lst ./dbip_by.lst; do
+            if [ -f "$f" ]; then
+              cat "$f" >> ./tmp/text/prepare.txt
+              printf '\n' >> ./tmp/text/prepare.txt
+            fi
+          done
+
+      # Применение кастомных списков и фильтрации
+      - name: Apply custom lists and filtering
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          # Добавляем CUSTOM-LIST-ADD.txt в prepare.txt, если он есть
+          if [ -f ./CUSTOM-LIST-ADD.txt ]; then
+            cat ./CUSTOM-LIST-ADD.txt >> ./tmp/text/prepare.txt
+            printf '\n' >> ./tmp/text/prepare.txt
+          fi
+
+          python3 ipset_ops.py --mode diff \
+            --A ./tmp/text/prepare.txt \
+            --B ./refilterbeta.txt,./refilter.txt,./antifilternetwork.txt,./antifilterdownloadcommunity.txt,./refiltercommunity.txt,./antifilternetworkcommunity.txt,./cdn.lst,./merged.sum,./CUSTOM-LIST-DEL.txt \
+            --out ./tmp/text/final.txt
+
+      # Выполняем финальную сборку с изменённым config.json
+      - name: Generate geoip artifacts (Final build with modified config)
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          
+          # Изменяем config.json перед запуском
+          python3 -c "
+          import json
+          with open('config.json', 'r', encoding='utf-8') as f:
+              config_data = json.load(f)
+          
+          # Изменяем имя для input 'add' из 'direct' на 'ru'
+          for input_entry in config_data.get('input', []):
+              if input_entry.get('type') == 'text' and input_entry.get('action') == 'add':
+                  args = input_entry.get('args', {})
+                  if args.get('name') == 'direct':
+                      args['name'] = 'ru'
+                      print('Changed input name from direct to ru')
+          
+          # input типа 'private' остаётся без изменений, он создаст тег 'PRIVATE'.
+          # input типа 'text' с action 'remove' остаётся без изменений, он удаляет '0.0.0.0/8' из тега 'PRIVATE'.
+          
+          # Добавляем wantedList к output 'v2rayGeoIPDat', включаем 'ru' и 'private'
+          for output_entry in config_data.get('output', []):
+              if output_entry.get('type') == 'v2rayGeoIPDat' and output_entry.get('action') == 'output':
+                  # Указываем 'ru' и 'private' (внутреннее имя тега от 'private' input)
+                  output_entry['args']['wantedList'] = ['ru', 'private']
+                  print('Added wantedList [\"ru\", \"private\"] to v2rayGeoIPDat output')
+          
+          with open('config.json', 'w', encoding='utf-8') as f:
+              json.dump(config_data, f, indent=2, ensure_ascii=False)
+          "
+          
+          # Запускаем geoip с изменённой конфигурацией
+          ./geoip -c config.json
+
+          ls -l output/dat/*.dat
+
+      # Подготовка текстовых файлов (очистка)
+      - name: Prepare workdir (copy ALL text files + clean with awk)
+        run: |
+          set -euo pipefail
+          work=/tmp/geoip-text
+          rm -rf "$work"
+          mkdir -p "$work"
+          shopt -s nullglob
+          cp -f geoip/output/text/*.txt "$work"/
+          shopt -u nullglob
+          for f in "$work"/*.txt; do
+            tmp="$(mktemp)"
+            awk '
+              function trim(s){ sub(/^[ \t]+/, " ",s); sub(/[ \t]+$/, " ",s); return s }
+              {
+                gsub(/\r/, " ")
+                s=$0
+                sub(/[ \t]*#.*/,   " ", s)
+                sub(/[ \t]*\/\/.*/,  " ", s)
+                sub(/[ \t]*@.*/,   " ", s)
+                s=trim(s)
+                if (s==" ") next
+                print s
+              }
+            ' "$f" > "$tmp"
+            mv "$tmp" "$f"
+          done
+
+      - name: Move files to publish directory (release branch layout + build archives for GH Release)
+        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        run: |
+          set -euo pipefail
+          rm -rf publish
+          mkdir -p publish
+          # mkdir -p publish/text publish/mihomo publish/sing-box # Убираем поддиректории
+
+          cp geoip/output/dat/*.dat publish/
+          # cp -f /tmp/geoip-text/*.txt publish/text/ # Убираем копирование текстовых
+          # cp -a /tmp/mihomo/rulesets/.   publish/mihomo/ # Убираем mihomo
+          # cp -a /tmp/sing-box/rulesets/. publish/sing-box/ # Убираем sing-box
+          # rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz # Убираем архивы mihomo/sing-box/text
+          # tar -czf /tmp/text.tar.gz     -C publish text
+          # tar -czf /tmp/mihomo.tar.gz   -C publish mihomo
+          # tar -czf /tmp/sing-box.tar.gz -C publish sing-box
+          # test -s /tmp/text.tar.gz
+          # test -s /tmp/mihomo.tar.gz
+          # test -s /tmp/sing-box.tar.gz
+
+      - name: Git push assets to "release" branch
+        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        run: |
+          cd publish || exit 1
+          git init
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b release
+          git add -A
+          git commit -m "${{ env.DAILY_TAG }}"
+          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git push -f -u origin release
+
+      - name: Purge jsdelivr CDN (including nested files)
+        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        run: |
+          set -euo pipefail
+          cd publish || exit 1
+          find . -type f -print0 | while IFS= read -r -d '' f; do
+            rel="${f#./}"
+            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${rel}"
+          done
+
+      - name: Publish release
+        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.DAILY_TAG }}
+          name: ${{ env.DAILY_TAG }}
+          prerelease: false
+          draft: false
+          files: |
+            publish/*.dat
+            # /tmp/mihomo.tar.gz # Убираем из релиза
+            # /tmp/sing-box.tar.gz # Убираем из релиза
+            # /tmp/text.tar.gz # Убираем из релиза
+
+      # Для ветки test-release (если нужен)
+      - name: Move files to publish directory (test-release layout)
+        if: github.ref_name != 'main' # Измените на имя вашей основной ветки
+        run: |
+          set -euo pipefail
+          rm -rf publish
+          mkdir -p publish
+          # mkdir -p publish/text publish/mihomo publish/sing-box # Убираем поддиректории
+
+          cp geoip/output/dat/*.dat publish/
+          # cp -f /tmp/geoip-text/*.txt publish/text/ # Убираем копирование текстовых
+          # cp -a /tmp/mihomo/rulesets/.   publish/mihomo/ # Убираем mihomo
+          # cp -a /tmp/sing-box/rulesets/. publish/sing-box/ # Убираем sing-box/
+
+      - name: Push artifacts to test-release branch
+        if: github.ref_name != 'main' # Измените на имя вашей основной ветки
+        env:
+          BRANCH: test-release
+        run: |
+          set -euo pipefail
+
+          stash=/tmp/test-release-artifacts
+          rm -rf "$stash"
+          mkdir -p "$stash"
+          cp -a publish/. "$stash"/
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git reset --hard
+          git clean -fdx
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch --depth=1 origin "$BRANCH"
+            git switch -C "$BRANCH" "origin/$BRANCH"
+          else
+            git switch --orphan "$BRANCH"
+          fi
+
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp -a "$stash"/. .
+
+          git add -A
+          git commit -m "Publish $(date -u +%Y%m%d%H%M)" --allow-empty
+          git push origin HEAD:"$BRANCH"
