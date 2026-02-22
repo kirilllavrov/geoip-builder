@@ -2,6 +2,7 @@ name: Build geoip
 on:
   workflow_dispatch:
   schedule:
+    # Запуск каждый 3-й день в 03:00 UTC
     - cron: '0 3 */3 * *'
   push:
     branches:
@@ -167,6 +168,8 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
+      # ========== ПОДГОТОВКА И КОНВЕРТАЦИЯ ==========
+
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
           set -euo pipefail
@@ -194,36 +197,35 @@ jobs:
             mv "$tmp" "$f"
           done
 
-      - name: Build GeoIP MMDB (.mmdb) for Clash Meta
+      - name: Install Mihomo (latest stable .deb)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          
+          gh release download -R MetaCubeX/mihomo --pattern 'mihomo-linux-amd64*.deb' --dir /tmp
+          sudo apt-get install -y "$(ls -1 /tmp/mihomo-linux-amd64*.deb | head -n1)"
+          rm -f /tmp/mihomo-linux-amd64*.deb
+
+      - name: Build mihomo .mrs from workdir
+        run: |
+          set -euo pipefail
           src=/tmp/geoip-text
-          out=/tmp/geoip-mmdb
-          rm -rf "$out"
+          out=/tmp/mihomo/rulesets
+          rm -rf /tmp/mihomo
           mkdir -p "$out"
-          
-          MMDB_DIR="/tmp/mmdb-gen"
-          rm -rf "$MMDB_DIR"
-          mkdir -p "$MMDB_DIR"
-          
-          # Копируем Go-скрипт из репозитория
-          cp "${{ github.workspace }}/mmdb_gen.go" "$MMDB_DIR/main.go"
-          
-          cd "$MMDB_DIR"
-          go mod init mmdb-gen
-          go get github.com/maxmind/mmdbwriter@latest
-          go build -o mmdb-gen .
-          
-          if [ -f "$src/ru.txt" ] && [ -s "$src/ru.txt" ]; then
-            "$MMDB_DIR/mmdb-gen" "$src/ru.txt" "$out/geoip.mmdb" "RU"
-          else
-            touch /tmp/empty.txt
-            "$MMDB_DIR/mmdb-gen" /tmp/empty.txt "$out/geoip.mmdb" "RU"
-          fi
-          
-          ls -l "$out"/*.mmdb
-          file "$out/geoip.mmdb"
+
+          shopt -s nullglob
+          for f in "$src"/*.txt; do
+            bn="$(basename "$f")"
+            base="${bn%.txt}"
+            dest="$out/${base}.mrs"
+            mihomo convert-ruleset ipcidr text "$f" "$dest"
+          done
+          shopt -u nullglob
+          ls -l "$out"/*.mrs
+
+      # ========== ПУБЛИКАЦИЯ ==========
 
       - name: Prepare release directory (main)
         if: github.ref_name == 'main'
@@ -232,10 +234,26 @@ jobs:
           rm -rf publish /tmp/publish
           mkdir -p publish
 
+          # Копируем .dat файлы
           cp geoip/output/dat/*.dat publish/
-          cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
-          
+
+          # Копируем .mrs файлы в корень publish (для jsdelivr)
+          shopt -s nullglob
+          for f in /tmp/mihomo/rulesets/*.mrs; do
+            bn="$(basename "$f")"
+            # Основной файл называем geoip.mrs, остальные — по имени
+            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
+              cp "$f" "publish/geoip.mrs"
+            else
+              cp "$f" "publish/${bn}"
+            fi
+          done
+          shopt -u nullglob
+
+          # Контрольная сумма
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
+
+          # Копируем для архива релиза
           cp -r publish /tmp/publish
 
       - name: Git push assets to "release" branch
@@ -272,7 +290,9 @@ jobs:
           files: |
             publish/*.dat
             publish/*.dat.sha256
-            publish/*.mmdb
+            publish/*.mrs
+
+      # ========== TEST BRANCH ==========
 
       - name: Prepare release directory (test)
         if: github.ref_name != 'main'
@@ -282,7 +302,18 @@ jobs:
           mkdir -p publish
 
           cp geoip/output/dat/*.dat publish/
-          cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
+
+          shopt -s nullglob
+          for f in /tmp/mihomo/rulesets/*.mrs; do
+            bn="$(basename "$f")"
+            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
+              cp "$f" "publish/geoip.mrs"
+            else
+              cp "$f" "publish/${bn}"
+            fi
+          done
+          shopt -u nullglob
+
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
           cp -r publish /tmp/publish
 
