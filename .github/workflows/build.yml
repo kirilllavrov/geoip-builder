@@ -21,19 +21,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
       - name: Checkout v2fly/geoip
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: v2fly/geoip
           path: geoip
           fetch-depth: 1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: geoip/go.mod
           cache: true
@@ -62,7 +62,7 @@ jobs:
 
       - name: Create Tag
         if: github.ref_name == 'main'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { DAILY_TAG } = process.env
@@ -139,57 +139,6 @@ jobs:
             --B ./refilterbeta.txt,./refilter.txt,./antifilternetwork.txt,./antifilterdownloadcommunity.txt,./refiltercommunity.txt,./antifilternetworkcommunity.txt,./cdn.lst,./merged.sum,./CUSTOM-LIST-DEL.txt \
             --out ./tmp/text/final.txt
 
-      - name: Check final.txt before MMDB
-        working-directory: geoip
-        run: |
-          echo "=== final.txt line count ==="
-          wc -l tmp/text/final.txt || echo "File not found or empty"
-          echo "=== First 5 lines ==="
-          head -5 tmp/text/final.txt || true
-
-      - name: Generate MMDB (Clash Meta)
-        working-directory: geoip
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          git clone --depth=1 https://github.com/soffchen/sing-geoip.git mmdb-tool
-          cd mmdb-tool
-          
-          cat > mmdb-config.json <<EOF
-          {
-            "input": [
-              {
-                "type": "text",
-                "action": "add",
-                "args": {
-                  "name": "ru",
-                  "path": "../tmp/text/final.txt"
-                }
-              }
-            ],
-            "output": [
-              {
-                "type": "maxmindMMDB",
-                "action": "output",
-                "args": {
-                  "path": "../output/dat/geoip.metadb",
-                  "wantedList": ["ru"]
-                }
-              }
-            ]
-          }
-          EOF
-          
-          go build -o sing-geoip
-          ./sing-geoip mmdb-config.json
-
-      - name: Check MMDB output
-        working-directory: geoip
-        run: |
-          echo "=== Files in output/dat ==="
-          ls -la output/dat/ || true
-          test -f output/dat/geoip.metadb && echo "✓ geoip.metadb exists" || echo "✗ geoip.metadb NOT created"
-
       - name: Generate geoip artifacts (Final build with modified config)
         working-directory: geoip
         run: |
@@ -219,6 +168,8 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
+      # ========== НОВЫЕ ШАГИ: Генерация MMDB / MRS / SRS ==========
+
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
           set -euo pipefail
@@ -231,7 +182,7 @@ jobs:
           for f in "$work"/*.txt; do
             tmp="$(mktemp)"
             awk '
-              function trim(s){ sub(/^[ \t]+/, "",s); sub(/[ \t]+$/, "",s); return s }
+              function trim(s){ sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
               {
                 gsub(/\r/, "")
                 s=$0
@@ -246,40 +197,163 @@ jobs:
             mv "$tmp" "$f"
           done
 
-      - name: Move files to publish directory (release branch layout)
+      - name: Install Mihomo (latest stable .deb)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download -R MetaCubeX/mihomo --pattern 'mihomo-linux-amd64*.deb' --dir /tmp
+          sudo apt-get install -y "$(ls -1 /tmp/mihomo-linux-amd64*.deb | head -n1)"
+          rm -f /tmp/mihomo-linux-amd64*.deb
+
+      - name: Install sing-box
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsSL https://sing-box.app/install.sh | sudo -E sh -s -- --version 1.12.12
+
+      - name: Build mihomo .mrs from workdir (multi-file)
+        run: |
+          set -euo pipefail
+          src=/tmp/geoip-text
+          out=/tmp/mihomo/rulesets
+          rm -rf /tmp/mihomo
+          mkdir -p "$out"
+
+          shopt -s nullglob
+          for f in "$src"/*.txt; do
+            bn="$(basename "$f")"
+            base="${bn%.txt}"
+            dest="$out/${base}.mrs"
+            mihomo convert-ruleset ipcidr text "$f" "$dest"
+          done
+          shopt -u nullglob
+          ls -l "$out"/*.mrs
+
+      - name: Build sing-box .srs from workdir (multi-file)
+        run: |
+          set -euo pipefail
+          src=/tmp/geoip-text
+          out=/tmp/sing-box/rulesets
+          rm -rf /tmp/sing-box
+          mkdir -p "$out"
+
+          shopt -s nullglob
+          for f in "$src"/*.txt; do
+            bn="$(basename "$f")"
+            base="${bn%.txt}"
+            dest="$out/${base}.srs"
+            tmp_json="$(mktemp)"
+
+            if test -s "$f"; then
+              awk '
+                BEGIN { first=1; printf("{\"version\":3,\"rules\":[{\"ip_cidr\":[") }
+                {
+                  if (first==0) printf(", ")
+                  printf("\"%s\"", $0)
+                  first=0
+                }
+                END { printf("]}]}") }
+              ' "$f" > "$tmp_json"
+            else
+              printf '{"version":3,"rules":[]}' > "$tmp_json"
+            fi
+
+            sing-box rule-set compile --output "$dest" "$tmp_json"
+            rm -f "$tmp_json"
+          done
+          shopt -u nullglob
+          ls -l "$out"/*.srs
+
+      - name: Build GeoIP MMDB (.mmdb/.metadb)
+        run: |
+          set -euo pipefail
+          src=/tmp/geoip-text
+          out=/tmp/geoip-mmdb
+          rm -rf "$out"
+          mkdir -p "$out"
+
+          # Скачиваем компилятор MMDB
+          curl -fsSL -o /tmp/mmdbwriter https://github.com/lyc8503/mmdb-compiler/releases/latest/download/mmdb-compiler-linux-amd64
+          chmod +x /tmp/mmdbwriter
+
+          shopt -s nullglob
+          for f in "$src"/*.txt; do
+            bn="$(basename "$f")"
+            base="${bn%.txt}"
+            dest="$out/${base}.mmdb"
+            /tmp/mmdbwriter -i "$f" -o "$dest" -t "IPv4"
+          done
+          shopt -u nullglob
+          ls -l "$out"/*.mmdb
+
+      # ========== ПУБЛИКАЦИЯ ==========
+
+      - name: Prepare release directory and archives (main)
         if: github.ref_name == 'main'
         run: |
           set -euo pipefail
-          rm -rf publish
-          mkdir -p publish
+          rm -rf release
+          rm -rf /tmp/release
+          mkdir -p release/text release/mihomo release/sing-box release/mmdb
+          
+          cp geoip/output/dat/*.dat release/
+          cp -f /tmp/geoip-text/*.txt release/text/
+          cp -a /tmp/mihomo/rulesets/. release/mihomo/
+          cp -a /tmp/sing-box/rulesets/. release/sing-box/
+          cp -a /tmp/geoip-mmdb/*.mmdb release/mmdb/
+          
+          rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz /tmp/mmdb.tar.gz
+          tar -czf /tmp/text.tar.gz -C release text
+          tar -czf /tmp/mihomo.tar.gz -C release mihomo
+          tar -czf /tmp/sing-box.tar.gz -C release sing-box
+          tar -czf /tmp/mmdb.tar.gz -C release mmdb
+          
+          test -s /tmp/text.tar.gz
+          test -s /tmp/mihomo.tar.gz
+          test -s /tmp/sing-box.tar.gz
+          test -s /tmp/mmdb.tar.gz
+          
+          sha256sum release/geoip.dat > release/geoip.dat.sha256
+          cp -r release /tmp/release
 
-          cp geoip/output/dat/*.dat publish/
-          cp geoip/output/dat/*.metadb publish/ 2>/dev/null || true
-
-      - name: Git push assets to "release" branch
+      - name: Push to release branch and update main
         if: github.ref_name == 'main'
         run: |
-          cd publish || exit 1
+          cd release || exit 1
           git init
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b release
           git add -A
-          git commit -m "${{ env.DAILY_TAG }}"
+          git commit -m "Release ${{ env.DAILY_TAG }}"
           git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
           git push -f -u origin release
+          cd .. || exit 1
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          rm -rf release
+          cp -r /tmp/release ./release
+          git add release/
+          git commit -m "Release ${{ env.DAILY_TAG }}" || echo "No changes to commit"
+          git push origin main
 
-      - name: Purge jsdelivr CDN (including nested files)
+      - name: Purge CDN for release and updated main branches
         if: github.ref_name == 'main'
         run: |
           set -euo pipefail
-          cd publish || exit 1
+          cd release || exit 1
           find . -type f -print0 | while IFS= read -r -d '' f; do
             rel="${f#./}"
+            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@${{ env.DAILY_TAG }}/release/${rel}"
+            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/release/${rel}"
             curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${rel}"
           done
 
-      - name: Publish release
+      - name: Publish GitHub Release
         if: github.ref_name == 'main'
         uses: softprops/action-gh-release@v1
         with:
@@ -288,46 +362,59 @@ jobs:
           prerelease: false
           draft: false
           files: |
-            publish/*.dat
-            publish/*.metadb
+            release/*.dat
+            release/*.dat.sha256
+            /tmp/mihomo.tar.gz
+            /tmp/sing-box.tar.gz
+            /tmp/text.tar.gz
+            /tmp/mmdb.tar.gz
 
-      - name: Move files to publish directory (test-release layout)
+      - name: Prepare release directory (test)
         if: github.ref_name != 'main'
         run: |
           set -euo pipefail
-          rm -rf publish
-          mkdir -p publish
+          rm -rf release
+          rm -rf /tmp/release
+          mkdir -p release/text release/mihomo release/sing-box release/mmdb
+          
+          cp geoip/output/dat/*.dat release/
+          cp -f /tmp/geoip-text/*.txt release/text/
+          cp -a /tmp/mihomo/rulesets/. release/mihomo/
+          cp -a /tmp/sing-box/rulesets/. release/sing-box/
+          cp -a /tmp/geoip-mmdb/*.mmdb release/mmdb/
+          
+          sha256sum release/geoip.dat > release/geoip.dat.sha256
+          cp -r release /tmp/release
 
-          cp geoip/output/dat/*.dat publish/
-          cp geoip/output/dat/*.metadb publish/ 2>/dev/null || true
-
-      - name: Push artifacts to test-release branch
+      - name: Push to test-release branch & update test branch
         if: github.ref_name != 'main'
-        env:
-          BRANCH: test-release
         run: |
-          set -euo pipefail
-
-          stash=/tmp/test-release-artifacts
-          rm -rf "$stash"
-          mkdir -p "$stash"
-          cp -a publish/. "$stash"/
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git reset --hard
-          git clean -fdx
-
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-            git fetch --depth=1 origin "$BRANCH"
-            git switch -C "$BRANCH" "origin/$BRANCH"
-          else
-            git switch --orphan "$BRANCH"
-          fi
-
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          cp -a "$stash"/. .
-
+          cd release || exit 1
+          git init
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b test-release
           git add -A
-          git commit -m "Publish $(date -u +%Y%m%d%H%M)" --allow-empty
-          git push origin HEAD:"$BRANCH"
+          git commit -m "Test Release $(date -u +%Y%m%d%H%M)"
+          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git push -f -u origin test-release
+          cd .. || exit 1
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B test
+          rm -rf release
+          cp -r /tmp/release ./release
+          git add release/
+          git commit -m "Test Release $(date -u +%Y%m%d%H%M)" || echo "No changes to commit"
+          git push origin test
+
+      - name: Purge CDN for test-release and updated test branches
+        if: github.ref_name != 'main'
+        run: |
+          set -euo pipefail
+          cd release || exit 1
+          find . -type f -print0 | while IFS= read -r -d '' f; do
+            rel="${f#./}"
+            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@test/release/${rel}"
+            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@test-release/${rel}"
+          done
