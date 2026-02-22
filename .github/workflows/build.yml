@@ -168,7 +168,7 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      # ========== НОВЫЕ ШАГИ: Генерация MMDB / MRS / SRS ==========
+      # ========== ПОДГОТОВКА И КОНВЕРТАЦИЯ (MRS / SRS) ==========
 
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
@@ -267,28 +267,6 @@ jobs:
           shopt -u nullglob
           ls -l "$out"/*.srs
 
-      - name: Build GeoIP MMDB (.mmdb/.metadb)
-        run: |
-          set -euo pipefail
-          src=/tmp/geoip-text
-          out=/tmp/geoip-mmdb
-          rm -rf "$out"
-          mkdir -p "$out"
-
-          # Скачиваем компилятор MMDB
-          curl -fsSL -o /tmp/mmdbwriter https://github.com/lyc8503/mmdb-compiler/releases/latest/download/mmdb-compiler-linux-amd64
-          chmod +x /tmp/mmdbwriter
-
-          shopt -s nullglob
-          for f in "$src"/*.txt; do
-            bn="$(basename "$f")"
-            base="${bn%.txt}"
-            dest="$out/${base}.mmdb"
-            /tmp/mmdbwriter -i "$f" -o "$dest" -t "IPv4"
-          done
-          shopt -u nullglob
-          ls -l "$out"/*.mmdb
-
       # ========== ПУБЛИКАЦИЯ ==========
 
       - name: Prepare release directory and archives (main)
@@ -297,24 +275,21 @@ jobs:
           set -euo pipefail
           rm -rf release
           rm -rf /tmp/release
-          mkdir -p release/text release/mihomo release/sing-box release/mmdb
+          mkdir -p release/text release/mihomo release/sing-box
           
           cp geoip/output/dat/*.dat release/
           cp -f /tmp/geoip-text/*.txt release/text/
           cp -a /tmp/mihomo/rulesets/. release/mihomo/
           cp -a /tmp/sing-box/rulesets/. release/sing-box/
-          cp -a /tmp/geoip-mmdb/*.mmdb release/mmdb/
           
-          rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz /tmp/mmdb.tar.gz
+          rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz
           tar -czf /tmp/text.tar.gz -C release text
           tar -czf /tmp/mihomo.tar.gz -C release mihomo
           tar -czf /tmp/sing-box.tar.gz -C release sing-box
-          tar -czf /tmp/mmdb.tar.gz -C release mmdb
           
           test -s /tmp/text.tar.gz
           test -s /tmp/mihomo.tar.gz
           test -s /tmp/sing-box.tar.gz
-          test -s /tmp/mmdb.tar.gz
           
           sha256sum release/geoip.dat > release/geoip.dat.sha256
           cp -r release /tmp/release
@@ -367,7 +342,6 @@ jobs:
             /tmp/mihomo.tar.gz
             /tmp/sing-box.tar.gz
             /tmp/text.tar.gz
-            /tmp/mmdb.tar.gz
 
       - name: Prepare release directory (test)
         if: github.ref_name != 'main'
@@ -375,13 +349,12 @@ jobs:
           set -euo pipefail
           rm -rf release
           rm -rf /tmp/release
-          mkdir -p release/text release/mihomo release/sing-box release/mmdb
+          mkdir -p release/text release/mihomo release/sing-box
           
           cp geoip/output/dat/*.dat release/
           cp -f /tmp/geoip-text/*.txt release/text/
           cp -a /tmp/mihomo/rulesets/. release/mihomo/
           cp -a /tmp/sing-box/rulesets/. release/sing-box/
-          cp -a /tmp/geoip-mmdb/*.mmdb release/mmdb/
           
           sha256sum release/geoip.dat > release/geoip.dat.sha256
           cp -r release /tmp/release
