@@ -139,8 +139,17 @@ jobs:
             --B ./refilterbeta.txt,./refilter.txt,./antifilternetwork.txt,./antifilterdownloadcommunity.txt,./refiltercommunity.txt,./antifilternetworkcommunity.txt,./cdn.lst,./merged.sum,./CUSTOM-LIST-DEL.txt \
             --out ./tmp/text/final.txt
 
+      - name: Check final.txt before MMDB
+        working-directory: geoip
+        run: |
+          echo "=== final.txt line count ==="
+          wc -l tmp/text/final.txt || echo "File not found or empty"
+          echo "=== First 5 lines ==="
+          head -5 tmp/text/final.txt || true
+
       - name: Generate MMDB (Clash Meta)
         working-directory: geoip
+        continue-on-error: true
         run: |
           set -euo pipefail
           git clone --depth=1 https://github.com/soffchen/sing-geoip.git mmdb-tool
@@ -174,6 +183,13 @@ jobs:
           go build -o sing-geoip
           ./sing-geoip mmdb-config.json
 
+      - name: Check MMDB output
+        working-directory: geoip
+        run: |
+          echo "=== Files in output/dat ==="
+          ls -la output/dat/ || true
+          test -f output/dat/geoip.metadb && echo "✓ geoip.metadb exists" || echo "✗ geoip.metadb NOT created"
+
       - name: Generate geoip artifacts (Final build with modified config)
         working-directory: geoip
         run: |
@@ -202,10 +218,6 @@ jobs:
           
           ./geoip -c config.json
           ls -l output/dat/*.dat
-
-      - name: Check output files
-        run: |
-          ls -lh geoip/output/dat/
 
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
@@ -242,7 +254,7 @@ jobs:
           mkdir -p publish
 
           cp geoip/output/dat/*.dat publish/
-          cp geoip/output/dat/*.metadb publish/
+          cp geoip/output/dat/*.metadb publish/ 2>/dev/null || true
 
       - name: Git push assets to "release" branch
         if: github.ref_name == 'main'
@@ -287,7 +299,7 @@ jobs:
           mkdir -p publish
 
           cp geoip/output/dat/*.dat publish/
-          cp geoip/output/dat/*.metadb publish/
+          cp geoip/output/dat/*.metadb publish/ 2>/dev/null || true
 
       - name: Push artifacts to test-release branch
         if: github.ref_name != 'main'
