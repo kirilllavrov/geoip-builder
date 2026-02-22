@@ -1,7 +1,6 @@
----
 name: Build geoip
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   schedule:
     # Запуск каждый 3-й день в 03:00 UTC
     - cron: '0 3 */3 * *'
@@ -36,7 +35,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: geoip/go.mod
           cache: true
           cache-dependency-path: geoip/go.sum
 
@@ -107,10 +106,6 @@ jobs:
         working-directory: geoip
         run: |
           set -euo pipefail
-          # normalize 'go' directive in go.mod if it contains a patch version (e.g. 1.24.0 -> 1.24)
-          if [ -f go.mod ]; then
-            sed -E -i 's/^go ([0-9]+\.[0-9]+)\.0$/go \1/' go.mod || true
-          fi
           go mod download
           go build -o geoip
 
@@ -148,137 +143,63 @@ jobs:
         working-directory: geoip
         run: |
           set -euo pipefail
-          # Build a small mmdb tool that converts a list of CIDRs to a MaxMind MMDB with code 'ru'.
-          mkdir -p mmdb-tool
-          cat > mmdb-tool/main.go <<'GO'
-package main
-
-import (
-  "bufio"
-  "fmt"
-  "net"
-  "os"
-  "strings"
-
-  "github.com/maxmind/mmdbwriter"
-  "github.com/maxmind/mmdbwriter/inserter"
-  "github.com/maxmind/mmdbwriter/mmdbtype"
-)
-
-func main() {
-  if len(os.Args) < 3 {
-    fmt.Fprintln(os.Stderr, "usage: mmdbtool <input.txt> <output.mmdb> [code]")
-    os.Exit(2)
-  }
-  input := os.Args[1]
-  output := os.Args[2]
-  code := "ru"
-  if len(os.Args) >= 4 {
-    code = os.Args[3]
-  }
-
-  f, err := os.Open(input)
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(2)
-  }
-  defer f.Close()
-
-  scanner := bufio.NewScanner(f)
-  var nets []*net.IPNet
-  for scanner.Scan() {
-    line := strings.TrimSpace(scanner.Text())
-    if line == "" || strings.HasPrefix(line, "#") {
-      continue
-    }
-    // accept CIDR or single IP
-    if _, ipnet, err := net.ParseCIDR(line); err == nil {
-      nets = append(nets, ipnet)
-      continue
-    }
-    if ip := net.ParseIP(line); ip != nil {
-      if ip.To4() != nil {
-        _, ipnet, _ := net.ParseCIDR(line + "/32")
-        nets = append(nets, ipnet)
-      } else {
-        _, ipnet, _ := net.ParseCIDR(line + "/128")
-        nets = append(nets, ipnet)
-      }
-    }
-  }
-
-  writer, err := mmdbwriter.New(mmdbwriter.Options{
-    DatabaseType:           "sing-geoip",
-    Languages:              []string{code},
-    IPVersion:              4,
-    RecordSize:             24,
-    Inserter:               inserter.ReplaceWith,
-    DisableIPv4Aliasing:    true,
-    IncludeReservedNetworks: true,
-  })
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(2)
-  }
-
-  for _, n := range nets {
-    if err := writer.Insert(n, mmdbtype.String(code)); err != nil {
-      fmt.Fprintln(os.Stderr, err)
-      os.Exit(2)
-    }
-  }
-
-  outF, err := os.Create(output)
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(2)
-  }
-  defer outF.Close()
-
-  if _, err := writer.WriteTo(outF); err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(2)
-  }
-}
-GO
-
+          git clone --depth=1 https://github.com/soffchen/sing-geoip.git mmdb-tool
           cd mmdb-tool
-          go mod init mmdb-tool || true
-          go get github.com/maxmind/mmdbwriter@latest
-          go get github.com/maxmind/mmdbwriter/inserter@latest || true
-          go get github.com/maxmind/mmdbwriter/mmdbtype@latest || true
-          go mod tidy
-          go build -o mmdbtool
-          cd ..
-
-          ./mmdb-tool/mmdbtool ../tmp/text/final.txt ../output/dat/geoip.metadb ru
+          
+          cat > mmdb-config.json <<EOF
+          {
+            "input": [
+              {
+                "type": "text",
+                "action": "add",
+                "args": {
+                  "name": "ru",
+                  "path": "../tmp/text/final.txt"
+                }
+              }
+            ],
+            "output": [
+              {
+                "type": "maxmindMMDB",
+                "action": "output",
+                "args": {
+                  "path": "../output/dat/geoip.metadb",
+                  "wantedList": ["ru"]
+                }
+              }
+            ]
+          }
+          EOF
+          
+          go build -o sing-geoip
+          ./sing-geoip -c mmdb-config.json
 
       - name: Generate geoip artifacts (Final build with modified config)
         working-directory: geoip
         run: |
           set -euo pipefail
-
+          
           python3 -c "
           import json
           with open('config.json', 'r', encoding='utf-8') as f:
               config_data = json.load(f)
-
+          
           for input_entry in config_data.get('input', []):
               if input_entry.get('type') == 'text' and input_entry.get('action') == 'add':
                   args = input_entry.get('args', {})
                   if args.get('name') == 'direct':
                       args['name'] = 'ru'
                       print('Changed input name from direct to ru')
-
+          
           for output_entry in config_data.get('output', []):
               if output_entry.get('type') == 'v2rayGeoIPDat' and output_entry.get('action') == 'output':
                   output_entry['args']['wantedList'] = ['ru', 'private']
                   print('Added wantedList [\"ru\", \"private\"] to v2rayGeoIPDat output')
-
+          
           with open('config.json', 'w', encoding='utf-8') as f:
               json.dump(config_data, f, indent=2, ensure_ascii=False)
           "
-
+          
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
@@ -381,7 +302,7 @@ GO
           cp -a publish/. "$stash"/
 
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git reset --hard
           git clean -fdx
 
@@ -393,7 +314,7 @@ GO
           fi
 
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          cp -a "$stash"/.
+          cp -a "$stash"/. .
 
           git add -A
           git commit -m "Publish $(date -u +%Y%m%d%H%M)" --allow-empty
