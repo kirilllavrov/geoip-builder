@@ -1,13 +1,13 @@
+---
 name: Build geoip
-
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   schedule:
     # Запуск каждый 3-й день в 03:00 UTC
     - cron: '0 3 */3 * *'
   push:
     branches:
-      - main  # Измените на имя вашей основной ветки, если не 'main'
+      - main
     paths-ignore:
       - "README.md"
       - ".gitignore"
@@ -22,25 +22,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Checkout v2fly/geoip
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: v2fly/geoip
           path: geoip
           fetch-depth: 1
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v5
         with:
-          go-version-file: geoip/go.mod
+          go-version: '1.20'
           cache: true
           cache-dependency-path: geoip/go.sum
 
-      # Загружаем и применяем наши кастомные файлы до сборки инструмента
       - name: Download custom config.json
         run: |
           curl -fsSL -o config.json https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/master/config.json
@@ -52,22 +51,19 @@ jobs:
       - name: Overlay custom files over geoip
         run: |
           set -euo pipefail
-          cp -f config.json geoip/ 2>/dev/null || true # Копируем наш скаченный config.json
-          cp -f ipset_ops.py geoip/ 2>/dev/null || true # Копируем наш скаченный ipset_ops.py
-          # Копируем другие кастомные файлы, если они есть в корне вашего репо
-          # cp -f CUSTOM-LIST-ADD.txt geoip/ 2>/dev/null || true
-          # cp -f CUSTOM-LIST-DEL.txt geoip/ 2>/dev/null || true
+          cp -f config.json geoip/ 2>/dev/null || true
+          cp -f ipset_ops.py geoip/ 2>/dev/null || true
 
       - name: Set tag
-        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        if: github.ref_name == 'main'
         run: |
           set -euo pipefail
           DAILY_TAG=$(date +%Y%m%d%H%M)
           echo "DAILY_TAG=$DAILY_TAG" >> "$GITHUB_ENV"
 
       - name: Create Tag
-        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
-        uses: actions/github-script@v8
+        if: github.ref_name == 'main'
+        uses: actions/github-script@v7
         with:
           script: |
             const { DAILY_TAG } = process.env
@@ -114,7 +110,6 @@ jobs:
           go mod download
           go build -o geoip
 
-      # Подготовка списков RU/BY (новая логика)
       - name: Generate geoip artifacts (RU/BY preparation)
         working-directory: geoip
         run: |
@@ -131,12 +126,10 @@ jobs:
             fi
           done
 
-      # Применение кастомных списков и фильтрации
       - name: Apply custom lists and filtering
         working-directory: geoip
         run: |
           set -euo pipefail
-          # Добавляем CUSTOM-LIST-ADD.txt в prepare.txt, если он есть
           if [ -f ./CUSTOM-LIST-ADD.txt ]; then
             cat ./CUSTOM-LIST-ADD.txt >> ./tmp/text/prepare.txt
             printf '\n' >> ./tmp/text/prepare.txt
@@ -147,46 +140,74 @@ jobs:
             --B ./refilterbeta.txt,./refilter.txt,./antifilternetwork.txt,./antifilterdownloadcommunity.txt,./refiltercommunity.txt,./antifilternetworkcommunity.txt,./cdn.lst,./merged.sum,./CUSTOM-LIST-DEL.txt \
             --out ./tmp/text/final.txt
 
-      # Выполняем финальную сборку с изменённым config.json
+      - name: Generate MMDB (Clash Meta)
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/soffchen/sing-geoip.git mmdb-tool
+          cd mmdb-tool
+
+          cat <<'EOF' | sed -e 's/[ \t]*$//' -e 's/^[ \t]\+//' > mmdb-config.json
+          {
+            "input": [
+              {
+                "type": "text",
+                "action": "add",
+                "args": {
+                  "name": "ru",
+                  "path": "../tmp/text/final.txt"
+                }
+              }
+            ],
+            "output": [
+              {
+                "type": "maxmindMMDB",
+                "action": "output",
+                "args": {
+                  "path": "../output/dat/geoip.metadb",
+                  "wantedList": ["ru"]
+                }
+              }
+            ]
+          }
+          EOF
+
+          go build -o sing-geoip
+          ./sing-geoip -c mmdb-config.json
+
       - name: Generate geoip artifacts (Final build with modified config)
         working-directory: geoip
         run: |
           set -euo pipefail
-          
-          # Изменяем config.json перед запуском
+
           python3 -c "
           import json
           with open('config.json', 'r', encoding='utf-8') as f:
               config_data = json.load(f)
-          
-          # Изменяем имя для input 'add' из 'direct' на 'ru'
+
           for input_entry in config_data.get('input', []):
               if input_entry.get('type') == 'text' and input_entry.get('action') == 'add':
                   args = input_entry.get('args', {})
                   if args.get('name') == 'direct':
                       args['name'] = 'ru'
                       print('Changed input name from direct to ru')
-          
-          # input типа 'private' остаётся без изменений, он создаст тег 'PRIVATE'.
-          # input типа 'text' с action 'remove' остаётся без изменений, он удаляет '0.0.0.0/8' из тега 'PRIVATE'.
-          
-          # Добавляем wantedList к output 'v2rayGeoIPDat', включаем 'ru' и 'private'
+
           for output_entry in config_data.get('output', []):
               if output_entry.get('type') == 'v2rayGeoIPDat' and output_entry.get('action') == 'output':
-                  # Указываем 'ru' и 'private' (внутреннее имя тега от 'private' input)
                   output_entry['args']['wantedList'] = ['ru', 'private']
                   print('Added wantedList [\"ru\", \"private\"] to v2rayGeoIPDat output')
-          
+
           with open('config.json', 'w', encoding='utf-8') as f:
               json.dump(config_data, f, indent=2, ensure_ascii=False)
           "
-          
-          # Запускаем geoip с изменённой конфигурацией
-          ./geoip -c config.json
 
+          ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      # Подготовка текстовых файлов (очистка)
+      - name: Check output files
+        run: |
+          ls -lh geoip/output/dat/
+
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
           set -euo pipefail
@@ -199,43 +220,33 @@ jobs:
           for f in "$work"/*.txt; do
             tmp="$(mktemp)"
             awk '
-              function trim(s){ sub(/^[ \t]+/, " ",s); sub(/[ \t]+$/, " ",s); return s }
+              function trim(s){ sub(/^[ \t]+/, "",s); sub(/[ \t]+$/, "",s); return s }
               {
-                gsub(/\r/, " ")
+                gsub(/\r/, "")
                 s=$0
-                sub(/[ \t]*#.*/,   " ", s)
-                sub(/[ \t]*\/\/.*/,  " ", s)
-                sub(/[ \t]*@.*/,   " ", s)
+                sub(/[ \t]*#.*/, "", s)
+                sub(/[ \t]*\/\/.*/, "", s)
+                sub(/[ \t]*@.*/, "", s)
                 s=trim(s)
-                if (s==" ") next
+                if (s=="") next
                 print s
               }
             ' "$f" > "$tmp"
             mv "$tmp" "$f"
           done
 
-      - name: Move files to publish directory (release branch layout + build archives for GH Release)
-        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+      - name: Move files to publish directory (release branch layout)
+        if: github.ref_name == 'main'
         run: |
           set -euo pipefail
           rm -rf publish
           mkdir -p publish
-          # mkdir -p publish/text publish/mihomo publish/sing-box # Убираем поддиректории
 
           cp geoip/output/dat/*.dat publish/
-          # cp -f /tmp/geoip-text/*.txt publish/text/ # Убираем копирование текстовых
-          # cp -a /tmp/mihomo/rulesets/.   publish/mihomo/ # Убираем mihomo
-          # cp -a /tmp/sing-box/rulesets/. publish/sing-box/ # Убираем sing-box
-          # rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz # Убираем архивы mihomo/sing-box/text
-          # tar -czf /tmp/text.tar.gz     -C publish text
-          # tar -czf /tmp/mihomo.tar.gz   -C publish mihomo
-          # tar -czf /tmp/sing-box.tar.gz -C publish sing-box
-          # test -s /tmp/text.tar.gz
-          # test -s /tmp/mihomo.tar.gz
-          # test -s /tmp/sing-box.tar.gz
+          cp geoip/output/dat/*.metadb publish/
 
       - name: Git push assets to "release" branch
-        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        if: github.ref_name == 'main'
         run: |
           cd publish || exit 1
           git init
@@ -248,7 +259,7 @@ jobs:
           git push -f -u origin release
 
       - name: Purge jsdelivr CDN (including nested files)
-        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        if: github.ref_name == 'main'
         run: |
           set -euo pipefail
           cd publish || exit 1
@@ -258,7 +269,7 @@ jobs:
           done
 
       - name: Publish release
-        if: github.ref_name == 'main' # Измените на имя вашей основной ветки
+        if: github.ref_name == 'main'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.DAILY_TAG }}
@@ -267,26 +278,20 @@ jobs:
           draft: false
           files: |
             publish/*.dat
-            # /tmp/mihomo.tar.gz # Убираем из релиза
-            # /tmp/sing-box.tar.gz # Убираем из релиза
-            # /tmp/text.tar.gz # Убираем из релиза
+            publish/*.metadb
 
-      # Для ветки test-release (если нужен)
       - name: Move files to publish directory (test-release layout)
-        if: github.ref_name != 'main' # Измените на имя вашей основной ветки
+        if: github.ref_name != 'main'
         run: |
           set -euo pipefail
           rm -rf publish
           mkdir -p publish
-          # mkdir -p publish/text publish/mihomo publish/sing-box # Убираем поддиректории
 
           cp geoip/output/dat/*.dat publish/
-          # cp -f /tmp/geoip-text/*.txt publish/text/ # Убираем копирование текстовых
-          # cp -a /tmp/mihomo/rulesets/.   publish/mihomo/ # Убираем mihomo
-          # cp -a /tmp/sing-box/rulesets/. publish/sing-box/ # Убираем sing-box/
+          cp geoip/output/dat/*.metadb publish/
 
       - name: Push artifacts to test-release branch
-        if: github.ref_name != 'main' # Измените на имя вашей основной ветки
+        if: github.ref_name != 'main'
         env:
           BRANCH: test-release
         run: |
@@ -298,7 +303,7 @@ jobs:
           cp -a publish/. "$stash"/
 
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git reset --hard
           git clean -fdx
 
@@ -310,7 +315,7 @@ jobs:
           fi
 
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          cp -a "$stash"/. .
+          cp -a "$stash"/.
 
           git add -A
           git commit -m "Publish $(date -u +%Y%m%d%H%M)" --allow-empty
