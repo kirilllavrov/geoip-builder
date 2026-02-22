@@ -168,7 +168,7 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      # ========== ПОДГОТОВКА И КОНВЕРТАЦИЯ (MRS / SRS) ==========
+      # ========== ПОДГОТОВКА И КОНВЕРТАЦИЯ ==========
 
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
@@ -207,14 +207,7 @@ jobs:
           sudo apt-get install -y "$(ls -1 /tmp/mihomo-linux-amd64*.deb | head -n1)"
           rm -f /tmp/mihomo-linux-amd64*.deb
 
-      - name: Install sing-box
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          curl -fsSL https://sing-box.app/install.sh | sudo -E sh -s -- --version 1.12.12
-
-      - name: Build mihomo .mrs from workdir (multi-file)
+      - name: Build mihomo .mrs from workdir
         run: |
           set -euo pipefail
           src=/tmp/geoip-text
@@ -232,99 +225,57 @@ jobs:
           shopt -u nullglob
           ls -l "$out"/*.mrs
 
-      - name: Build sing-box .srs from workdir (multi-file)
-        run: |
-          set -euo pipefail
-          src=/tmp/geoip-text
-          out=/tmp/sing-box/rulesets
-          rm -rf /tmp/sing-box
-          mkdir -p "$out"
-
-          shopt -s nullglob
-          for f in "$src"/*.txt; do
-            bn="$(basename "$f")"
-            base="${bn%.txt}"
-            dest="$out/${base}.srs"
-            tmp_json="$(mktemp)"
-
-            if test -s "$f"; then
-              awk '
-                BEGIN { first=1; printf("{\"version\":3,\"rules\":[{\"ip_cidr\":[") }
-                {
-                  if (first==0) printf(", ")
-                  printf("\"%s\"", $0)
-                  first=0
-                }
-                END { printf("]}]}") }
-              ' "$f" > "$tmp_json"
-            else
-              printf '{"version":3,"rules":[]}' > "$tmp_json"
-            fi
-
-            sing-box rule-set compile --output "$dest" "$tmp_json"
-            rm -f "$tmp_json"
-          done
-          shopt -u nullglob
-          ls -l "$out"/*.srs
-
       # ========== ПУБЛИКАЦИЯ ==========
 
-      - name: Prepare release directory and archives (main)
+      - name: Prepare release directory (main)
         if: github.ref_name == 'main'
         run: |
           set -euo pipefail
-          rm -rf release
-          rm -rf /tmp/release
-          mkdir -p release/text release/mihomo release/sing-box
-          
-          cp geoip/output/dat/*.dat release/
-          cp -f /tmp/geoip-text/*.txt release/text/
-          cp -a /tmp/mihomo/rulesets/. release/mihomo/
-          cp -a /tmp/sing-box/rulesets/. release/sing-box/
-          
-          rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz
-          tar -czf /tmp/text.tar.gz -C release text
-          tar -czf /tmp/mihomo.tar.gz -C release mihomo
-          tar -czf /tmp/sing-box.tar.gz -C release sing-box
-          
-          test -s /tmp/text.tar.gz
-          test -s /tmp/mihomo.tar.gz
-          test -s /tmp/sing-box.tar.gz
-          
-          sha256sum release/geoip.dat > release/geoip.dat.sha256
-          cp -r release /tmp/release
+          rm -rf publish /tmp/publish
+          mkdir -p publish
 
-      - name: Push to release branch and update main
+          # Копируем .dat файлы
+          cp geoip/output/dat/*.dat publish/
+
+          # Копируем .mrs файлы в корень publish (для jsdelivr)
+          shopt -s nullglob
+          for f in /tmp/mihomo/rulesets/*.mrs; do
+            bn="$(basename "$f")"
+            # Основной файл называем geoip.mrs, остальные — по имени
+            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
+              cp "$f" "publish/geoip.mrs"
+            else
+              cp "$f" "publish/${bn}"
+            fi
+          done
+          shopt -u nullglob
+
+          # Контрольная сумма
+          sha256sum publish/geoip.dat > publish/geoip.dat.sha256
+
+          # Копируем для архива релиза
+          cp -r publish /tmp/publish
+
+      - name: Git push assets to "release" branch
         if: github.ref_name == 'main'
         run: |
-          cd release || exit 1
+          cd publish || exit 1
           git init
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b release
           git add -A
-          git commit -m "Release ${{ env.DAILY_TAG }}"
+          git commit -m "${{ env.DAILY_TAG }}"
           git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
           git push -f -u origin release
-          cd .. || exit 1
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout main
-          rm -rf release
-          cp -r /tmp/release ./release
-          git add release/
-          git commit -m "Release ${{ env.DAILY_TAG }}" || echo "No changes to commit"
-          git push origin main
 
-      - name: Purge CDN for release and updated main branches
+      - name: Purge jsdelivr CDN
         if: github.ref_name == 'main'
         run: |
           set -euo pipefail
-          cd release || exit 1
+          cd publish || exit 1
           find . -type f -print0 | while IFS= read -r -d '' f; do
             rel="${f#./}"
-            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@${{ env.DAILY_TAG }}/release/${rel}"
-            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/release/${rel}"
             curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${rel}"
           done
 
@@ -337,57 +288,61 @@ jobs:
           prerelease: false
           draft: false
           files: |
-            release/*.dat
-            release/*.dat.sha256
-            /tmp/mihomo.tar.gz
-            /tmp/sing-box.tar.gz
-            /tmp/text.tar.gz
+            publish/*.dat
+            publish/*.dat.sha256
+            publish/*.mrs
+
+      # ========== TEST BRANCH ==========
 
       - name: Prepare release directory (test)
         if: github.ref_name != 'main'
         run: |
           set -euo pipefail
-          rm -rf release
-          rm -rf /tmp/release
-          mkdir -p release/text release/mihomo release/sing-box
-          
-          cp geoip/output/dat/*.dat release/
-          cp -f /tmp/geoip-text/*.txt release/text/
-          cp -a /tmp/mihomo/rulesets/. release/mihomo/
-          cp -a /tmp/sing-box/rulesets/. release/sing-box/
-          
-          sha256sum release/geoip.dat > release/geoip.dat.sha256
-          cp -r release /tmp/release
+          rm -rf publish /tmp/publish
+          mkdir -p publish
 
-      - name: Push to test-release branch & update test branch
-        if: github.ref_name != 'main'
-        run: |
-          cd release || exit 1
-          git init
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b test-release
-          git add -A
-          git commit -m "Test Release $(date -u +%Y%m%d%H%M)"
-          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
-          git push -f -u origin test-release
-          cd .. || exit 1
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B test
-          rm -rf release
-          cp -r /tmp/release ./release
-          git add release/
-          git commit -m "Test Release $(date -u +%Y%m%d%H%M)" || echo "No changes to commit"
-          git push origin test
+          cp geoip/output/dat/*.dat publish/
 
-      - name: Purge CDN for test-release and updated test branches
+          shopt -s nullglob
+          for f in /tmp/mihomo/rulesets/*.mrs; do
+            bn="$(basename "$f")"
+            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
+              cp "$f" "publish/geoip.mrs"
+            else
+              cp "$f" "publish/${bn}"
+            fi
+          done
+          shopt -u nullglob
+
+          sha256sum publish/geoip.dat > publish/geoip.dat.sha256
+          cp -r publish /tmp/publish
+
+      - name: Push artifacts to test-release branch
         if: github.ref_name != 'main'
+        env:
+          BRANCH: test-release
         run: |
           set -euo pipefail
-          cd release || exit 1
-          find . -type f -print0 | while IFS= read -r -d '' f; do
-            rel="${f#./}"
-            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@test/release/${rel}"
-            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@test-release/${rel}"
-          done
+          stash=/tmp/test-release-artifacts
+          rm -rf "$stash"
+          mkdir -p "$stash"
+          cp -a publish/. "$stash"/
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git reset --hard
+          git clean -fdx
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch --depth=1 origin "$BRANCH"
+            git switch -C "$BRANCH" "origin/$BRANCH"
+          else
+            git switch --orphan "$BRANCH"
+          fi
+
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp -a "$stash"/. .
+
+          git add -A
+          git commit -m "Publish $(date -u +%Y%m%d%H%M)" --allow-empty
+          git push origin HEAD:"$BRANCH"
