@@ -208,8 +208,17 @@ jobs:
           rm -rf "$out"
           mkdir -p "$out"
           
+          # Создаём изолированную директорию для Go-модуля
+          MMDB_DIR="/tmp/mmdb-gen"
+          rm -rf "$MMDB_DIR"
+          mkdir -p "$MMDB_DIR"
+          cd "$MMDB_DIR"
+          
+          # Инициализируем модуль
+          go mod init mmdb-gen
+          
           # Создаём Go-скрипт для конвертации CIDR → MMDB
-          cat > /tmp/mmdb_gen.go << 'EOF'
+          cat > main.go << 'EOF'
           package main
           
           import (
@@ -288,21 +297,17 @@ jobs:
           }
           EOF
           
-          # Инициализируем модуль и скачиваем зависимости
-          cd /tmp
-          go mod init mmdb-gen 2>/dev/null || true
+          # Добавляем зависимость и собираем
           go get github.com/maxmind/mmdbwriter@latest
-          
-          # Собираем и запускаем
-          go build -o /tmp/mmdb-gen /tmp/mmdb_gen.go
+          go build -o mmdb-gen .
           
           # Конвертируем ru.txt → geoip.mmdb
           if [ -f "$src/ru.txt" ] && [ -s "$src/ru.txt" ]; then
-            /tmp/mmdb-gen "$src/ru.txt" "$out/geoip.mmdb" "RU"
+            "$MMDB_DIR/mmdb-gen" "$src/ru.txt" "$out/geoip.mmdb" "RU"
           else
             # Пустая база, если список пустой
-            echo "" > /tmp/empty_cidr.txt
-            /tmp/mmdb-gen /tmp/empty_cidr.txt "$out/geoip.mmdb" "RU"
+            touch /tmp/empty.txt
+            "$MMDB_DIR/mmdb-gen" /tmp/empty.txt "$out/geoip.mmdb" "RU"
           fi
           
           ls -l "$out"/*.mmdb
