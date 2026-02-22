@@ -172,7 +172,7 @@ jobs:
           EOF
           
           go build -o sing-geoip
-          ./sing-geoip -c mmdb-config.json
+          ./sing-geoip mmdb-config.json
 
       - name: Generate geoip artifacts (Final build with modified config)
         working-directory: geoip
