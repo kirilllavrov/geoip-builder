@@ -168,8 +168,7 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      # ========== ПОДГОТОВКА И КОНВЕРТАЦИЯ ==========
-
+      # ========== ПОДГОТОВКА ТЕКСТОВЫХ ФАЙЛОВ ==========
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
           set -euo pipefail
@@ -197,6 +196,7 @@ jobs:
             mv "$tmp" "$f"
           done
 
+      # ========== ГЕНЕРАЦИЯ .mrs ДЛЯ CLASH META ==========
       - name: Install Mihomo (latest stable .deb)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -226,7 +226,6 @@ jobs:
           ls -l "$out"/*.mrs
 
       # ========== ПУБЛИКАЦИЯ ==========
-
       - name: Prepare release directory (main)
         if: github.ref_name == 'main'
         run: |
@@ -241,9 +240,11 @@ jobs:
           shopt -s nullglob
           for f in /tmp/mihomo/rulesets/*.mrs; do
             bn="$(basename "$f")"
-            # Основной файл называем geoip.mrs, остальные — по имени
-            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
-              cp "$f" "publish/geoip.mrs"
+            # Основной файл RU называем ru.mrs, private — private.mrs
+            if [[ "$bn" == "final.mrs" || "$bn" == "ru.txt.mrs" ]]; then
+              cp "$f" "publish/ru.mrs"
+            elif [[ "$bn" == "private.txt.mrs" ]]; then
+              cp "$f" "publish/private.mrs"
             else
               cp "$f" "publish/${bn}"
             fi
@@ -293,7 +294,6 @@ jobs:
             publish/*.mrs
 
       # ========== TEST BRANCH ==========
-
       - name: Prepare release directory (test)
         if: github.ref_name != 'main'
         run: |
@@ -306,8 +306,10 @@ jobs:
           shopt -s nullglob
           for f in /tmp/mihomo/rulesets/*.mrs; do
             bn="$(basename "$f")"
-            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
-              cp "$f" "publish/geoip.mrs"
+            if [[ "$bn" == "final.mrs" || "$bn" == "ru.txt.mrs" ]]; then
+              cp "$f" "publish/ru.mrs"
+            elif [[ "$bn" == "private.txt.mrs" ]]; then
+              cp "$f" "publish/private.mrs"
             else
               cp "$f" "publish/${bn}"
             fi
