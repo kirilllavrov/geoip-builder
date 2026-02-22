@@ -2,7 +2,6 @@ name: Build geoip
 on:
   workflow_dispatch:
   schedule:
-    # Запуск каждый 3-й день в 03:00 UTC
     - cron: '0 3 */3 * *'
   push:
     branches:
@@ -168,8 +167,6 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      # ========== ПОДГОТОВКА ТЕКСТОВЫХ ФАЙЛОВ ==========
-
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
           set -euo pipefail
@@ -197,7 +194,33 @@ jobs:
             mv "$tmp" "$f"
           done
 
-      # ========== ГЕНЕРАЦИЯ MMDB (MAXMIND) ДЛЯ CLASH META ==========
+      - name: Install Mihomo (latest stable .deb)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download -R MetaCubeX/mihomo --pattern 'mihomo-linux-amd64*.deb' --dir /tmp
+          sudo apt-get install -y "$(ls -1 /tmp/mihomo-linux-amd64*.deb | head -n1)"
+          rm -f /tmp/mihomo-linux-amd64*.deb
+
+      - name: Build mihomo .mrs from workdir
+        run: |
+          set -euo pipefail
+          src=/tmp/geoip-text
+          out=/tmp/mihomo/rulesets
+          rm -rf /tmp/mihomo
+          mkdir -p "$out"
+
+          shopt -s nullglob
+          for f in "$src"/*.txt; do
+            bn="$(basename "$f")"
+            base="${bn%.txt}"
+            dest="$out/${base}.mrs"
+            mihomo convert-ruleset ipcidr text "$f" "$dest"
+          done
+          shopt -u nullglob
+          ls -l "$out"/*.mrs
 
       - name: Build GeoIP MMDB (.mmdb) for Clash Meta
         run: |
@@ -208,18 +231,14 @@ jobs:
           rm -rf "$out"
           mkdir -p "$out"
           
-          # Изолированная директория для Go-модуля
           MMDB_DIR="/tmp/mmdb-gen"
           rm -rf "$MMDB_DIR"
           mkdir -p "$MMDB_DIR"
           cd "$MMDB_DIR"
           
-          # Инициализация модуля
           go mod init mmdb-gen
           
-          # Go-скрипт для генерации MMDB
-          cat > main.go << 'GOEOF'
-package main
+          printf '%s\n' 'package main
 
 import (
 	"bufio"
@@ -299,26 +318,20 @@ func main() {
 	}
 
 	fmt.Printf("Generated %s with %d entries\n", outputFile, count)
-}
-GOEOF
-
-          # Зависимости и сборка
+}' > main.go
+          
           go get github.com/maxmind/mmdbwriter@latest
           go build -o mmdb-gen .
           
-          # Конвертация ru.txt → geoip.mmdb
           if [ -f "$src/ru.txt" ] && [ -s "$src/ru.txt" ]; then
             "$MMDB_DIR/mmdb-gen" "$src/ru.txt" "$out/geoip.mmdb" "RU"
           else
-            # Пустая база, если список пустой
             touch /tmp/empty.txt
             "$MMDB_DIR/mmdb-gen" /tmp/empty.txt "$out/geoip.mmdb" "RU"
           fi
           
           ls -l "$out"/*.mmdb
           file "$out/geoip.mmdb"
-
-      # ========== ПУБЛИКАЦИЯ ==========
 
       - name: Prepare release directory (main)
         if: github.ref_name == 'main'
@@ -327,16 +340,17 @@ GOEOF
           rm -rf publish /tmp/publish
           mkdir -p publish
 
-          # Копируем .dat файлы
           cp geoip/output/dat/*.dat publish/
-
-          # Копируем .mmdb файл (для geox-url.geoip)
           cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
+          
+          shopt -s nullglob
+          for f in /tmp/mihomo/rulesets/*.mrs; do
+            bn="$(basename "$f")"
+            cp "$f" "publish/${bn}"
+          done
+          shopt -u nullglob
 
-          # Контрольная сумма
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
-
-          # Копируем для архива релиза
           cp -r publish /tmp/publish
 
       - name: Git push assets to "release" branch
@@ -374,8 +388,7 @@ GOEOF
             publish/*.dat
             publish/*.dat.sha256
             publish/*.mmdb
-
-      # ========== TEST BRANCH ==========
+            publish/*.mrs
 
       - name: Prepare release directory (test)
         if: github.ref_name != 'main'
@@ -386,6 +399,14 @@ GOEOF
 
           cp geoip/output/dat/*.dat publish/
           cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
+          
+          shopt -s nullglob
+          for f in /tmp/mihomo/rulesets/*.mrs; do
+            bn="$(basename "$f")"
+            cp "$f" "publish/${bn}"
+          done
+          shopt -u nullglob
+
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
           cp -r publish /tmp/publish
 
