@@ -197,34 +197,112 @@ jobs:
             mv "$tmp" "$f"
           done
 
-      # ========== ГЕНЕРАЦИЯ MMDB (MAXMIND) ==========
+      # ========== ГЕНЕРАЦИЯ MMDB (MAXMIND) ЧЕРЕЗ GO-СКРИПТ ==========
 
-      - name: Build GeoIP MMDB (.mmdb) for Mihomo/Clash
+      - name: Build GeoIP MMDB (.mmdb) using mmdbwriter
         run: |
           set -euo pipefail
-          
-          # Скачиваем и собираем mmdb-compiler (на основе maxmind/mmdbwriter)
-          cd /tmp
-          git clone --depth=1 https://github.com/lyc8503/mmdb-compiler.git
-          cd mmdb-compiler
-          go build -o mmdb-compiler .
           
           src=/tmp/geoip-text
           out=/tmp/geoip-mmdb
           rm -rf "$out"
           mkdir -p "$out"
           
-          # Конвертируем ru.txt → geoip.mmdb с кодом страны RU
+          # Создаём Go-скрипт для конвертации CIDR → MMDB
+          cat > /tmp/mmdb_gen.go << 'EOF'
+          package main
+          
+          import (
+          	"bufio"
+          	"fmt"
+          	"net"
+          	"os"
+          	"strings"
+          
+          	"github.com/maxmind/mmdbwriter"
+          	"github.com/maxmind/mmdbwriter/mmdbtype"
+          )
+          
+          func main() {
+          	if len(os.Args) < 4 {
+          		fmt.Fprintf(os.Stderr, "Usage: %s <input.txt> <output.mmdb> <country_code>\n", os.Args[0])
+          		os.Exit(1)
+          	}
+          
+          	inputFile := os.Args[1]
+          	outputFile := os.Args[2]
+          	countryCode := os.Args[3]
+          
+          	writer, err := mmdbwriter.New(mmdbwriter.Options{
+          		DatabaseType:            "GeoIP2-Country",
+          		RecordSize:              28,
+          		IncludeReservedNetworks: true,
+          	})
+          	if err != nil {
+          		panic(err)
+          	}
+          
+          	file, err := os.Open(inputFile)
+          	if err != nil {
+          		panic(err)
+          	}
+          	defer file.Close()
+          
+          	scanner := bufio.NewScanner(file)
+          	count := 0
+          	for scanner.Scan() {
+          		line := strings.TrimSpace(scanner.Text())
+          		if line == "" || strings.HasPrefix(line, "#") {
+          			continue
+          		}
+          		_, cidr, err := net.ParseCIDR(line)
+          		if err != nil {
+          			continue
+          		}
+          		data := mmdbtype.Map{
+          			"country": mmdbtype.Map{
+          				"iso_code": mmdbtype.String(countryCode),
+          			},
+          		}
+          		if err := writer.Insert(cidr, data); err != nil {
+          			continue
+          		}
+          		count++
+          	}
+          
+          	if err := scanner.Err(); err != nil {
+          		panic(err)
+          	}
+          
+          	f, err := os.Create(outputFile)
+          	if err != nil {
+          		panic(err)
+          	}
+          	defer f.Close()
+          
+          	if _, err := writer.WriteTo(f); err != nil {
+          		panic(err)
+          	}
+          
+          	fmt.Printf("Generated %s with %d entries\n", outputFile, count)
+          }
+          EOF
+          
+          # Инициализируем модуль и скачиваем зависимости
+          cd /tmp
+          go mod init mmdb-gen 2>/dev/null || true
+          go get github.com/maxmind/mmdbwriter@latest
+          
+          # Собираем и запускаем
+          go build -o /tmp/mmdb-gen /tmp/mmdb_gen.go
+          
+          # Конвертируем ru.txt → geoip.mmdb
           if [ -f "$src/ru.txt" ] && [ -s "$src/ru.txt" ]; then
-            /tmp/mmdb-compiler/mmdb-compiler \
-              -i "$src/ru.txt" \
-              -o "$out/geoip.mmdb" \
-              -t "IPv4" \
-              -c "RU" \
-              -d "Custom RU GeoIP"
+            /tmp/mmdb-gen "$src/ru.txt" "$out/geoip.mmdb" "RU"
           else
             # Пустая база, если список пустой
-            echo '{"version":3,"rules":[]}' | /tmp/mmdb-compiler/mmdb-compiler -i /dev/stdin -o "$out/geoip.mmdb" -t "IPv4" -c "RU"
+            echo "" > /tmp/empty_cidr.txt
+            /tmp/mmdb-gen /tmp/empty_cidr.txt "$out/geoip.mmdb" "RU"
           fi
           
           ls -l "$out"/*.mmdb
