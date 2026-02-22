@@ -194,34 +194,6 @@ jobs:
             mv "$tmp" "$f"
           done
 
-      - name: Install Mihomo (latest stable .deb)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release download -R MetaCubeX/mihomo --pattern 'mihomo-linux-amd64*.deb' --dir /tmp
-          sudo apt-get install -y "$(ls -1 /tmp/mihomo-linux-amd64*.deb | head -n1)"
-          rm -f /tmp/mihomo-linux-amd64*.deb
-
-      - name: Build mihomo .mrs from workdir
-        run: |
-          set -euo pipefail
-          src=/tmp/geoip-text
-          out=/tmp/mihomo/rulesets
-          rm -rf /tmp/mihomo
-          mkdir -p "$out"
-
-          shopt -s nullglob
-          for f in "$src"/*.txt; do
-            bn="$(basename "$f")"
-            base="${bn%.txt}"
-            dest="$out/${base}.mrs"
-            mihomo convert-ruleset ipcidr text "$f" "$dest"
-          done
-          shopt -u nullglob
-          ls -l "$out"/*.mrs
-
       - name: Build GeoIP MMDB (.mmdb) for Clash Meta
         run: |
           set -euo pipefail
@@ -234,92 +206,12 @@ jobs:
           MMDB_DIR="/tmp/mmdb-gen"
           rm -rf "$MMDB_DIR"
           mkdir -p "$MMDB_DIR"
+          
+          # Копируем Go-скрипт из репозитория
+          cp "${{ github.workspace }}/mmdb_gen.go" "$MMDB_DIR/main.go"
+          
           cd "$MMDB_DIR"
-          
           go mod init mmdb-gen
-          
-          printf '%s\n' 'package main
-
-import (
-	"bufio"
-	"fmt"
-	"net"
-	"os"
-	"strings"
-
-	"github.com/maxmind/mmdbwriter"
-	"github.com/maxmind/mmdbwriter/mmdbtype"
-)
-
-func main() {
-	if len(os.Args) < 4 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <input.txt> <output.mmdb> <country_code>\n", os.Args[0])
-		os.Exit(1)
-	}
-
-	inputFile := os.Args[1]
-	outputFile := os.Args[2]
-	countryCode := strings.ToUpper(os.Args[3])
-
-	writer, err := mmdbwriter.New(mmdbwriter.Options{
-		DatabaseType:            "GeoIP2-Country",
-		RecordSize:              28,
-		IncludeReservedNetworks: true,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "mmdbwriter.New: %v\n", err)
-		os.Exit(1)
-	}
-
-	file, err := os.Open(inputFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "os.Open: %v\n", err)
-		os.Exit(1)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	count := 0
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
-			continue
-		}
-		_, cidr, err := net.ParseCIDR(line)
-		if err != nil {
-			continue
-		}
-		data := mmdbtype.Map{
-			"country": mmdbtype.Map{
-				"iso_code": mmdbtype.String(countryCode),
-			},
-		}
-		if err := writer.Insert(cidr, data); err != nil {
-			continue
-		}
-		count++
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "scanner.Err: %v\n", err)
-		os.Exit(1)
-	}
-
-	f, err := os.Create(outputFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "os.Create: %v\n", err)
-		os.Exit(1)
-	}
-	defer f.Close()
-
-	if _, err := writer.WriteTo(f); err != nil {
-		fmt.Fprintf(os.Stderr, "writer.WriteTo: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Generated %s with %d entries\n", outputFile, count)
-}' > main.go
-          
           go get github.com/maxmind/mmdbwriter@latest
           go build -o mmdb-gen .
           
@@ -343,13 +235,6 @@ func main() {
           cp geoip/output/dat/*.dat publish/
           cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
           
-          shopt -s nullglob
-          for f in /tmp/mihomo/rulesets/*.mrs; do
-            bn="$(basename "$f")"
-            cp "$f" "publish/${bn}"
-          done
-          shopt -u nullglob
-
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
           cp -r publish /tmp/publish
 
@@ -388,7 +273,6 @@ func main() {
             publish/*.dat
             publish/*.dat.sha256
             publish/*.mmdb
-            publish/*.mrs
 
       - name: Prepare release directory (test)
         if: github.ref_name != 'main'
@@ -399,14 +283,6 @@ func main() {
 
           cp geoip/output/dat/*.dat publish/
           cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
-          
-          shopt -s nullglob
-          for f in /tmp/mihomo/rulesets/*.mrs; do
-            bn="$(basename "$f")"
-            cp "$f" "publish/${bn}"
-          done
-          shopt -u nullglob
-
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
           cp -r publish /tmp/publish
 
