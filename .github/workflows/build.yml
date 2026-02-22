@@ -168,7 +168,7 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      # ========== ПОДГОТОВКА И КОНВЕРТАЦИЯ ==========
+      # ========== ПОДГОТОВКА ТЕКСТОВЫХ ФАЙЛОВ ==========
 
       - name: Prepare workdir (copy ALL text files + clean with awk)
         run: |
@@ -197,33 +197,38 @@ jobs:
             mv "$tmp" "$f"
           done
 
-      - name: Install Mihomo (latest stable .deb)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release download -R MetaCubeX/mihomo --pattern 'mihomo-linux-amd64*.deb' --dir /tmp
-          sudo apt-get install -y "$(ls -1 /tmp/mihomo-linux-amd64*.deb | head -n1)"
-          rm -f /tmp/mihomo-linux-amd64*.deb
+      # ========== ГЕНЕРАЦИЯ MMDB (MAXMIND) ==========
 
-      - name: Build mihomo .mrs from workdir
+      - name: Build GeoIP MMDB (.mmdb) for Mihomo/Clash
         run: |
           set -euo pipefail
+          
+          # Скачиваем и собираем mmdb-compiler (на основе maxmind/mmdbwriter)
+          cd /tmp
+          git clone --depth=1 https://github.com/lyc8503/mmdb-compiler.git
+          cd mmdb-compiler
+          go build -o mmdb-compiler .
+          
           src=/tmp/geoip-text
-          out=/tmp/mihomo/rulesets
-          rm -rf /tmp/mihomo
+          out=/tmp/geoip-mmdb
+          rm -rf "$out"
           mkdir -p "$out"
-
-          shopt -s nullglob
-          for f in "$src"/*.txt; do
-            bn="$(basename "$f")"
-            base="${bn%.txt}"
-            dest="$out/${base}.mrs"
-            mihomo convert-ruleset ipcidr text "$f" "$dest"
-          done
-          shopt -u nullglob
-          ls -l "$out"/*.mrs
+          
+          # Конвертируем ru.txt → geoip.mmdb с кодом страны RU
+          if [ -f "$src/ru.txt" ] && [ -s "$src/ru.txt" ]; then
+            /tmp/mmdb-compiler/mmdb-compiler \
+              -i "$src/ru.txt" \
+              -o "$out/geoip.mmdb" \
+              -t "IPv4" \
+              -c "RU" \
+              -d "Custom RU GeoIP"
+          else
+            # Пустая база, если список пустой
+            echo '{"version":3,"rules":[]}' | /tmp/mmdb-compiler/mmdb-compiler -i /dev/stdin -o "$out/geoip.mmdb" -t "IPv4" -c "RU"
+          fi
+          
+          ls -l "$out"/*.mmdb
+          file "$out/geoip.mmdb"
 
       # ========== ПУБЛИКАЦИЯ ==========
 
@@ -237,18 +242,8 @@ jobs:
           # Копируем .dat файлы
           cp geoip/output/dat/*.dat publish/
 
-          # Копируем .mrs файлы в корень publish (для jsdelivr)
-          shopt -s nullglob
-          for f in /tmp/mihomo/rulesets/*.mrs; do
-            bn="$(basename "$f")"
-            # Основной файл называем geoip.mrs, остальные — по имени
-            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
-              cp "$f" "publish/geoip.mrs"
-            else
-              cp "$f" "publish/${bn}"
-            fi
-          done
-          shopt -u nullglob
+          # Копируем .mmdb файл (для geox-url.geoip)
+          cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
 
           # Контрольная сумма
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
@@ -290,7 +285,7 @@ jobs:
           files: |
             publish/*.dat
             publish/*.dat.sha256
-            publish/*.mrs
+            publish/*.mmdb
 
       # ========== TEST BRANCH ==========
 
@@ -302,18 +297,7 @@ jobs:
           mkdir -p publish
 
           cp geoip/output/dat/*.dat publish/
-
-          shopt -s nullglob
-          for f in /tmp/mihomo/rulesets/*.mrs; do
-            bn="$(basename "$f")"
-            if [[ "$bn" == "final.mrs" || "$bn" == "ru.mrs" ]]; then
-              cp "$f" "publish/geoip.mrs"
-            else
-              cp "$f" "publish/${bn}"
-            fi
-          done
-          shopt -u nullglob
-
+          cp -f /tmp/geoip-mmdb/geoip.mmdb publish/
           sha256sum publish/geoip.dat > publish/geoip.dat.sha256
           cp -r publish /tmp/publish
 
