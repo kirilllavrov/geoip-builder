@@ -91,6 +91,18 @@ jobs:
           go mod download
           go build -o geoip
 
+      - name: Validate config.json and input files
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          python3 -c "import json; d=json.load(open('config.json')); assert 'input' in d and 'output' in d"
+          for f in geolite_ru.lst geolite_by.lst private.txt; do
+            if [ -f "$f" ] && [ ! -s "$f" ]; then
+              echo "ERROR: $f is empty"
+              exit 1
+            fi
+          done
+
       - name: Generate geoip artifacts
         working-directory: geoip
         run: |
