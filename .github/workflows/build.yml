@@ -7,7 +7,7 @@ on:
   push:
     branches:
       - test
-      - master
+      - main
     paths-ignore:
       - "README.md"
       - ".gitignore"
@@ -66,7 +66,7 @@ jobs:
         working-directory: geoip
         run: |
           set -euo pipefail
-          SRC="https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/master"
+          SRC="https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/main"
           ${{ env.CURL }} -o CUSTOM-LIST-ADD.txt "${SRC}/CUSTOM-LIST-ADD.txt" 2>/dev/null || touch CUSTOM-LIST-ADD.txt
           ${{ env.CURL }} -o CUSTOM-LIST-DEL.txt "${SRC}/CUSTOM-LIST-DEL.txt" 2>/dev/null || touch CUSTOM-LIST-DEL.txt
           ${{ env.CURL }} -o CUSTOM-WHITELIST.txt "${SRC}/CUSTOM-WHITELIST.txt" 2>/dev/null || touch CUSTOM-WHITELIST.txt
@@ -164,8 +164,8 @@ jobs:
           shopt -u nullglob
           ls -l "$out"/*.srs
 
-      - name: MASTER Prepare release directory and archives
-        if: github.ref_name == 'master'
+      - name: main Prepare release directory and archives
+        if: github.ref_name == 'main'
         run: |
           set -euo pipefail
           rm -rf release
@@ -183,8 +183,8 @@ jobs:
           test -s /tmp/sing-box.tar.gz
           sha256sum release/geoip.dat > release/geoip.dat.sha256
 
-      - name: MASTER Push to release branch and update master
-        if: github.ref_name == 'master'
+      - name: main Push to release branch and update main
+        if: github.ref_name == 'main'
         run: |
           cd release || exit 1
           git init
@@ -198,13 +198,13 @@ jobs:
           cd .. || exit 1
           git config --local user.name "kirilllavrov"
           git config --local user.email "kirilllavrov@users.noreply.github.com"
-          git checkout master
+          git checkout main
           git add release/
           git commit -m "Release ${{ env.DAILY_TAG }}" || echo "No changes to commit"
-          git push origin master
+          git push origin main
 
-      - name: MASTER Publish GitHub Release
-        if: github.ref_name == 'master'
+      - name: main Publish GitHub Release
+        if: github.ref_name == 'main'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.DAILY_TAG }}
@@ -218,15 +218,15 @@ jobs:
             /tmp/sing-box.tar.gz
             /tmp/text.tar.gz
 
-      - name: MASTER Purge CDN for release and updated master branches
-        if: github.ref_name == 'master'
+      - name: main Purge CDN for release and updated main branches
+        if: github.ref_name == 'main'
         run: |
           set -euo pipefail
           cd release || exit 1
           find . -type f -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
             rel="${f#./}"
             ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}/release/${rel}"
-            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@master/release/${rel}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/release/${rel}"
             ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${rel}"
             ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@${{ env.DAILY_TAG }}/release/${rel}"
           done
