@@ -5,8 +5,7 @@
       "action": "add",
       "args": {
         "name": "ru",
-        "uri": "./geolite_ru.lst",
-        "onlyIPType": "ipv4"
+        "uri": "./geolite_ru.lst"
       }
     },
     {
@@ -14,8 +13,7 @@
       "action": "add",
       "args": {
         "name": "ru",
-        "uri": "./geolite_by.lst",
-        "onlyIPType": "ipv4"
+        "uri": "./ipinfo_ru.lst"
       }
     },
     {
@@ -23,35 +21,7 @@
       "action": "add",
       "args": {
         "name": "ru",
-        "uri": "./ipinfo_ru.lst",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "add",
-      "args": {
-        "name": "ru",
-        "uri": "./ipinfo_by.lst",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "add",
-      "args": {
-        "name": "ru",
-        "uri": "./dbip_ru.lst",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "add",
-      "args": {
-        "name": "ru",
-        "uri": "./dbip_by.lst",
-        "onlyIPType": "ipv4"
+        "uri": "./dbip_ru.lst"
       }
     },
     {
@@ -67,70 +37,87 @@
       "action": "remove",
       "args": {
         "name": "ru",
-        "uri": "./refilter.txt",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "remove",
-      "args": {
-        "name": "ru",
-        "uri": "./antifilternetwork.txt",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "remove",
-      "args": {
-        "name": "ru",
-        "uri": "./antifilterdownloadcommunity.txt",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "remove",
-      "args": {
-        "name": "ru",
-        "uri": "./refiltercommunity.txt",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "remove",
-      "args": {
-        "name": "ru",
-        "uri": "./antifilternetworkcommunity.txt",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "remove",
-      "args": {
-        "name": "ru",
-        "uri": "./cdn.lst",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "remove",
-      "args": {
-        "name": "ru",
-        "uri": "./merged.sum",
-        "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "remove",
-      "args": {
-        "name": "ru",
         "uri": "./CUSTOM-LIST-DEL.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "remove",
+      "args": {
+        "name": "ru",
+        "uri": "./antifilterdownloadcommunity.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "remove",
+      "args": {
+        "name": "ru",
+        "uri": "./antifilternetwork.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "remove",
+      "args": {
+        "name": "ru",
+        "uri": "./antifilternetworkcommunity.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "remove",
+      "args": {
+        "name": "ru",
+        "uri": "./refilter.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "remove",
+      "args": {
+        "name": "ru",
+        "uri": "./refiltercommunity.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "remove",
+      "args": {
+        "name": "ru",
+        "uri": "./cdn.lst"
+      }
+    },
+    {
+      "type": "text",
+      "action": "remove",
+      "args": {
+        "name": "ru",
+        "uri": "./merged.sum"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "by",
+        "uri": "./geolite_by.lst"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "by",
+        "uri": "./ipinfo_by.lst"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "by",
+        "uri": "./dbip_by.lst"
       }
     },
     {
@@ -138,8 +125,7 @@
       "action": "add",
       "args": {
         "name": "whitelist",
-        "uri": "./whitelist.txt",
-        "onlyIPType": "ipv4"
+        "uri": "./whitelist.txt"
       }
     },
     {
@@ -151,29 +137,60 @@
       }
     },
     {
-      "type": "private",
-      "action": "add"
-    },
-    {
       "type": "text",
-      "action": "remove",
+      "action": "add",
       "args": {
-        "name": "private",
-        "ipOrCIDR": ["0.0.0.0/8", "::/128"]
-      }
-    }
-  ],
-  "output": [
-    {
-      "type": "v2rayGeoIPDat",
-      "action": "output",
-      "args": {
-        "outputName": "geoip.dat"
+        "name": "cdn",
+        "uri": "./cdn.lst"
       }
     },
     {
       "type": "text",
-      "action": "output"
+      "action": "add",
+      "args": {
+        "name": "cdn",
+        "uri": "./merged.sum"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "antifilter",
+        "uri": "./antifilterdownloadcommunity.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "antifilter",
+        "uri": "./antifilternetwork.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "antifilter",
+        "uri": "./antifilternetworkcommunity.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "antifilter",
+        "uri": "./refilter.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "antifilter",
+        "uri": "./refiltercommunity.txt"
+      }
     }
   ]
 }
