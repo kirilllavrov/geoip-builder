@@ -76,7 +76,7 @@ jobs:
         working-directory: geoip
         run: |
           set -euo pipefail
-          SRC="https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/main/release/text"
+          SRC="https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/master/release/text/"
           ${{ env.CURL }} -o private.txt "${SRC}/private.txt" 2>/dev/null || touch private.txt
 
       - name: Overlay custom config.json
