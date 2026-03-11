@@ -14,7 +14,8 @@
     {"type": "text", "action": "remove", "args": {"name": "ru", "uri": "./refilter.txt"}},
     {"type": "text", "action": "remove", "args": {"name": "ru", "uri": "./refiltercommunity.txt"}},
     {"type": "text", "action": "remove", "args": {"name": "ru", "uri": "./cdn.lst"}},
-    {"type": "text", "action": "remove", "args": {"name": "ru", "uri": "./merged.sum"}}
+    {"type": "text", "action": "remove", "args": {"name": "ru", "uri": "./merged.sum"}},
+    {"type": "text", "action": "add", "args": {"name": "private", "uri": "./private.txt"}}
   ],
   "output": [
     {"type": "v2rayGeoIPDat", "args": {"outputDir": "./output/dat"}},
