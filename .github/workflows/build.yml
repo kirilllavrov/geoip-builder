@@ -71,11 +71,13 @@ jobs:
           ${{ env.CURL }} -o CUSTOM-LIST-DEL.txt "${SRC}/CUSTOM-LIST-DEL.txt" 2>/dev/null || touch CUSTOM-LIST-DEL.txt
           ${{ env.CURL }} -o CUSTOM-WHITELIST.txt "${SRC}/CUSTOM-WHITELIST.txt" 2>/dev/null || touch CUSTOM-WHITELIST.txt
 
-      - name: Download private.txt from source repo
+      # === НОВЫЙ ШАГ: загрузка private.txt для категории private ===
+      - name: Download private.txt for private category
         working-directory: geoip
         run: |
           set -euo pipefail
-          ${{ env.CURL }} -o private.txt "https://github.com/hydraponique/roscomvpn-geoip/blob/master/release/text/private.txt" 2>/dev/null || touch private.txt
+          SRC="https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/main/release/text"
+          ${{ env.CURL }} -o private.txt "${SRC}/private.txt" 2>/dev/null || touch private.txt
 
       - name: Overlay custom config.json
         run: |
