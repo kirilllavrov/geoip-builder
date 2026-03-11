@@ -164,7 +164,7 @@ jobs:
           shopt -u nullglob
           ls -l "$out"/*.srs
 
-      - name: main Prepare release directory and archives
+      - name: MAIN Prepare release directory and archives
         if: github.ref_name == 'main'
         run: |
           set -euo pipefail
@@ -183,7 +183,7 @@ jobs:
           test -s /tmp/sing-box.tar.gz
           sha256sum release/geoip.dat > release/geoip.dat.sha256
 
-      - name: main Push to release branch and update main
+      - name: MAIN Push to release branch and update main
         if: github.ref_name == 'main'
         run: |
           cd release || exit 1
@@ -203,7 +203,7 @@ jobs:
           git commit -m "Release ${{ env.DAILY_TAG }}" || echo "No changes to commit"
           git push origin main
 
-      - name: main Publish GitHub Release
+      - name: MAIN Publish GitHub Release
         if: github.ref_name == 'main'
         uses: softprops/action-gh-release@v1
         with:
@@ -218,7 +218,7 @@ jobs:
             /tmp/sing-box.tar.gz
             /tmp/text.tar.gz
 
-      - name: main Purge CDN for release and updated main branches
+      - name: MAIN Purge CDN for release and updated main branches
         if: github.ref_name == 'main'
         run: |
           set -euo pipefail
