@@ -192,5 +192,19 @@
         "uri": "./refiltercommunity.txt"
       }
     }
+  ],
+  "output": [
+    {
+      "type": "dat",
+      "args": {
+        "outputDir": "./output/dat"
+      }
+    },
+    {
+      "type": "text",
+      "args": {
+        "outputDir": "./output/text"
+      }
+    }
   ]
 }
