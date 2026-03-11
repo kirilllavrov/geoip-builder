@@ -43,33 +43,6 @@ jobs:
           cache: true
           cache-dependency-path: geoip/go.sum
 
-      - name: Overlay custom files over geoip
-        run: |
-          set -euo pipefail
-          cp -f ./*.json geoip/ 2>/dev/null || true
-          cp -f ./*.txt geoip/ 2>/dev/null || true
-          cp -f ./*.py geoip/ 2>/dev/null || true
-
-      - name: Set tag
-        if: github.ref_name == 'master'
-        run: |
-          set -euo pipefail
-          DAILY_TAG=$(date +%Y%m%d%H%M)
-          echo "DAILY_TAG=$DAILY_TAG" >> "$GITHUB_ENV"
-
-      - name: Create Tag
-        if: github.ref_name == 'master'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const { DAILY_TAG } = process.env
-            await github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/tags/${DAILY_TAG}`,
-              sha: context.sha
-            })
-
       - name: Download inputs (IP lists + Geobases)
         working-directory: geoip
         run: |
@@ -90,12 +63,18 @@ jobs:
           ${{ env.CURL }} -o dbip_by.lst https://raw.githubusercontent.com/hydraponique/countrydb/refs/heads/main/output/dbip-country-ipv4/by.lst
 
       - name: Download custom lists from source repo
+        working-directory: geoip
         run: |
           set -euo pipefail
           SRC="https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/master"
           ${{ env.CURL }} -o CUSTOM-LIST-ADD.txt "${SRC}/CUSTOM-LIST-ADD.txt" 2>/dev/null || touch CUSTOM-LIST-ADD.txt
           ${{ env.CURL }} -o CUSTOM-LIST-DEL.txt "${SRC}/CUSTOM-LIST-DEL.txt" 2>/dev/null || touch CUSTOM-LIST-DEL.txt
           ${{ env.CURL }} -o CUSTOM-WHITELIST.txt "${SRC}/CUSTOM-WHITELIST.txt" 2>/dev/null || touch CUSTOM-WHITELIST.txt
+
+      - name: Overlay custom config.json
+        run: |
+          set -euo pipefail
+          cp -f config.json geoip/
 
       - name: Build geoip tool
         working-directory: geoip
@@ -116,9 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           ARCH=$(dpkg --print-architecture)
-          LATEST_URL=$(${{ env.CURL }} https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
-            | grep -oP '"browser_download_url":\s*"\K[^"]*mihomo-linux-'"$ARCH"'-[^"]*\.deb(?=")' \
-            | head -n1)
+          LATEST_URL=$(${{ env.CURL }} https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep -oP '"browser_download_url":\s*"\K[^"]*mihomo-linux-'"$ARCH"'-[^"]*\.deb(?=")' | head -n1)
           echo "Downloading: $LATEST_URL"
           ${{ env.CURL }} -o /tmp/mihomo.deb "$LATEST_URL"
           sudo dpkg -i /tmp/mihomo.deb || sudo apt-get install -f -y
@@ -142,19 +119,7 @@ jobs:
           shopt -u nullglob
           for f in "$work"/*.txt; do
             tmp="$(mktemp)"
-            awk '
-              function trim(s){ sub(/^[ \t]+/, "",s); sub(/[ \t]+$/, "",s); return s }
-              {
-                gsub(/\r/, "")
-                s=$0
-                sub(/[ \t]*#.*/, "", s)
-                sub(/[ \t]*\/\/.*/, "", s)
-                sub(/[ \t]*@.*/, "", s)
-                s=trim(s)
-                if (s=="") next
-                print s
-              }
-            ' "$f" > "$tmp"
+            awk 'function trim(s){ sub(/^[ \t]+/, "",s); sub(/[ \t]+$/, "",s); return s } { gsub(/\r/, ""); s=$0; sub(/[ \t]*#.*/, "", s); sub(/[ \t]*\/\/.*/, "", s); sub(/[ \t]*@.*/, "", s); s=trim(s); if (s=="") next; print s }' "$f" > "$tmp"
             mv "$tmp" "$f"
           done
 
@@ -189,15 +154,7 @@ jobs:
             dest="$out/${base}.srs"
             tmp_json="$(mktemp)"
             if test -s "$f"; then
-              awk '
-                BEGIN { first=1; printf("{\"version\":3,\"rules\":[{\"ip_cidr\":[") }
-                {
-                  if (first==0) printf(", ")
-                  printf("\"%s\"", $0)
-                  first=0
-                }
-                END { printf("]}]}") }
-              ' "$f" > "$tmp_json"
+              awk 'BEGIN { first=1; printf("{\"version\":3,\"rules\":[{\"ip_cidr\":[") } { if (first==0) printf(", "); printf("\"%s\"", $0); first=0 } END { printf("]}]}") }' "$f" > "$tmp_json"
             else
               printf '{"version":3,"rules":[]}' > "$tmp_json"
             fi
