@@ -72,10 +72,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 - << 'EOF'
-            import json
-            d = json.load(open('config.json'))
-            assert 'input' in d and 'output' in d
-            EOF
+import json
+d = json.load(open('config.json'))
+assert 'input' in d and 'output' in d
+EOF
           test -s direct.txt
 
       - name: Generate geoip artifacts
