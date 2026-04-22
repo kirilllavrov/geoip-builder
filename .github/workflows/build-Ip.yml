@@ -1,0 +1,83 @@
+name: Build GeoIP
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */12 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Download source IP list
+        run: |
+          mkdir -p data
+          curl -sSL \
+            https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt \
+            -o data/ru.txt
+
+      - name: Clone v2fly/geoip
+        run: |
+          git clone https://github.com/v2fly/geoip.git builder
+          cd builder
+          go mod download
+
+      - name: Prepare data for geoip builder
+        run: |
+          mkdir -p builder/data
+          cp data/ru.txt builder/data/ru
+
+      - name: Build geoip.dat
+        run: |
+          cd builder
+          go run ./cmd/geoip
+          mkdir -p ../output
+          cp geoip.dat ../output/geoip.dat
+
+      # ----------------------------------------------------
+      # 🔥 Публикация в ветку release (orphan, чистая ветка)
+      # ----------------------------------------------------
+      - name: Publish to release branch
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git checkout --orphan release
+          git rm -rf . || true
+
+          cp output/geoip.dat geoip.dat
+
+          git add geoip.dat
+          git commit -m "Update geoip.dat"
+          git push origin release --force
+
+      # ----------------------------------------------------
+      # 📦 GitHub Release + красивое сообщение
+      # ----------------------------------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: geoip-${{ github.run_number }}
+          name: GeoIP build
+          body: |
+            Автоматическая сборка geoip для Xray (Sing-box)
+
+            🔄 Run: #${{ github.run_number }}
+            🔗 Commit: ${{ github.sha }}
+            📦 Форматы:
+            - geoip.dat (V2Ray/Xray/Sing-box)
+
+            🌐 jsDelivr CDN:
+            ```
+            https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat
+            ```
+          files: output/geoip.dat
