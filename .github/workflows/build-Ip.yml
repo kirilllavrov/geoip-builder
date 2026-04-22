@@ -39,9 +39,10 @@ jobs:
       - name: Build geoip.dat
         run: |
           cd builder
-          go run ./cmd/geoip
-          mkdir -p ../output
-          cp geoip.dat ../output/geoip.dat
+          mkdir -p data
+          mkdir -p output
+          go run ./ --datapath=./data --outputdir=./output
+          cp output/geoip.dat ../output/geoip.dat
 
       # ----------------------------------------------------
       # 🔥 Публикация в ветку release (orphan, чистая ветка)
