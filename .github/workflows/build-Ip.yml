@@ -13,30 +13,33 @@ on:
       - "LICENSE"
       - "release/**"
 
-permissions:
-  contents: write
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    name: Build
     runs-on: ubuntu-latest
-    env:
-      CURL: "curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused"
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout codebase
-        uses: actions/checkout@v4
+      # ============================
+      # Checkout source with GH_PAT
+      # ============================
+      - uses: actions/checkout@v6
         with:
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
+          ref: main
 
       - name: Checkout v2fly/geoip
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: v2fly/geoip
           path: geoip
           fetch-depth: 1
 
-      - name: Set up Go
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: geoip/go.mod
@@ -49,18 +52,18 @@ jobs:
         working-directory: geoip
         run: |
           set -euo pipefail
-          ${{ env.CURL }} -o direct.txt \
+          curl -fsSL -o direct.txt \
             https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
 
       - name: Download private.txt (PRIVATE)
         working-directory: geoip
         run: |
           set -euo pipefail
-          ${{ env.CURL }} -o private.txt \
+          curl -fsSL -o private.txt \
             https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt
 
       # ============================
-      # Use config.json from repo
+      # Copy config.json (with wantedList)
       # ============================
       - name: Copy config.json
         run: |
@@ -141,7 +144,7 @@ jobs:
           cp /tmp/geoip-release/geoip.dat.sha256 output/geoip.dat.sha256
 
       # ============================
-      # Create GitHub Release
+      # Create GitHub Release (GH_PAT)
       # ============================
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -168,7 +171,7 @@ jobs:
           make_latest: true
           overwrite_files: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Return to main branch
         run: |
