@@ -1,73 +1,226 @@
-name: Build GeoIP
+name: Build geoip
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */12 * * *"
+    - cron: '0 5 */3 * *'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "README.md"
+      - ".gitignore"
+      - "LICENSE"
+      - "release/**"
+
+permissions:
+  contents: write
 
 jobs:
   build:
+    name: Build
     runs-on: ubuntu-latest
+    env:
+      CURL: "curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused"
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Go
-        uses: actions/setup-go@v5
+      - name: Checkout codebase
+        uses: actions/checkout@v6
         with:
-          go-version: "1.22"
+          fetch-depth: 1
 
-      - name: Download source IP list
-        run: |
-          mkdir -p data
-          curl -sSL \
-            https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt \
-            -o data/ru.txt
+      - name: Checkout v2fly/geoip
+        uses: actions/checkout@v6
+        with:
+          repository: v2fly/geoip
+          path: geoip
+          fetch-depth: 1
 
-      - name: Clone v2fly/geoip
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: geoip/go.mod
+          cache: true
+          cache-dependency-path: geoip/go.sum
+
+      # ============================================================
+      # 🔥 direct.txt → категория ru
+      # ============================================================
+      - name: Download direct.txt (RU category)
+        working-directory: geoip
         run: |
-          git clone https://github.com/v2fly/geoip.git builder
-          cd builder
+          set -euo pipefail
+          ${{ env.CURL }} -o direct.txt \
+            https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
+
+      # ============================================================
+      # 🔥 config.json под наш случай
+      # ============================================================
+      - name: Write custom config.json
+        working-directory: geoip
+        run: |
+          cat > config.json << 'EOF'
+          {
+            "input": [
+              {
+                "type": "text",
+                "action": "add",
+                "args": {
+                  "name": "ru",
+                  "uri": "./direct.txt"
+                }
+              }
+            ],
+            "output": [
+              {
+                "type": "v2rayGeoIPDat",
+                "args": {
+                  "outputDir": "./output/dat"
+                }
+              },
+              {
+                "type": "text",
+                "args": {
+                  "outputDir": "./output/text"
+                }
+              }
+            ]
+          }
+          EOF
+
+      - name: Build geoip tool
+        working-directory: geoip
+        run: |
+          set -euo pipefail
           go mod download
+          go build -o geoip
 
-      - name: Prepare data for geoip builder
+      - name: Validate config.json and input files
+        working-directory: geoip
         run: |
-          mkdir -p builder/data
-          cp data/ru.txt builder/data/ru
+          set -euo pipefail
+          python3 -c "import json; d=json.load(open('config.json')); assert 'input' in d and 'output' in d"
+          test -s direct.txt
 
-      - name: Build geoip.dat
+      - name: Generate geoip artifacts
+        working-directory: geoip
         run: |
-          cd builder
-          mkdir -p data
-          mkdir -p output
-          go run ./ --datapath=./data --outputdir=./output
-          cp output/geoip.dat ../output/geoip.dat
+          set -euo pipefail
+          rm -rf output
+          ./geoip -c config.json
+          ls -l output/dat/*.dat
 
-      # ----------------------------------------------------
-      # 🔥 Публикация в ветку release (orphan, чистая ветка)
-      # ----------------------------------------------------
-      - name: Publish to release branch
+      # ============================================================
+      # Mihomo + Sing-box
+      # ============================================================
+      - name: Install Mihomo (latest stable .deb)
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          set -euo pipefail
+          ARCH=$(dpkg --print-architecture)
+          LATEST_URL=$(${{ env.CURL }} https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep -oP '"browser_download_url":\s*"\K[^"]*mihomo-linux-'"$ARCH"'-[^"]*\.deb(?=")' | head -n1)
+          echo "Downloading: $LATEST_URL"
+          ${{ env.CURL }} -o /tmp/mihomo.deb "$LATEST_URL"
+          sudo dpkg -i /tmp/mihomo.deb || sudo apt-get install -f -y
+          rm -f /tmp/mihomo.deb
 
-          git checkout --orphan release
-          git rm -rf . || true
+      - name: Install sing-box
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ${{ env.CURL }} https://sing-box.app/install.sh | sudo -E sh -s -- --version 1.12.12
 
-          cp output/geoip.dat geoip.dat
+      - name: Prepare workdir (copy ALL text files + clean with awk)
+        run: |
+          set -euo pipefail
+          work=/tmp/geoip-text
+          rm -rf "$work"
+          mkdir -p "$work"
+          shopt -s nullglob
+          cp -f geoip/output/text/*.txt "$work"/
+          shopt -u nullglob
+          for f in "$work"/*.txt; do
+            tmp="$(mktemp)"
+            awk 'function trim(s){ sub(/^[ \t]+/, "",s); sub(/[ \t]+$/, "",s); return s } { gsub(/\r/, ""); s=$0; sub(/[ \t]*#.*/, "", s); sub(/[ \t]*\/\/.*/, "", s); sub(/[ \t]*@.*/, "", s); s=trim(s); if (s=="") next; print s }' "$f" > "$tmp"
+            mv "$tmp" "$f"
+          done
 
-          git add geoip.dat
-          git commit -m "Update geoip.dat"
-          git push origin release --force
+      - name: Build mihomo .mrs from workdir
+        run: |
+          set -euo pipefail
+          src=/tmp/geoip-text
+          out=/tmp/mihomo/rulesets
+          rm -rf /tmp/mihomo
+          mkdir -p "$out"
+          shopt -s nullglob
+          for f in "$src"/*.txt; do
+            bn="$(basename "$f")"
+            base="${bn%.txt}"
+            dest="$out/${base}.mrs"
+            mihomo convert-ruleset ipcidr text "$f" "$dest"
+          done
+          shopt -u nullglob
 
-      # ----------------------------------------------------
-      # 📦 GitHub Release + красивое сообщение
-      # ----------------------------------------------------
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Build sing-box .srs from workdir
+        run: |
+          set -euo pipefail
+          src=/tmp/geoip-text
+          out=/tmp/sing-box/rulesets
+          rm -rf /tmp/sing-box
+          mkdir -p "$out"
+          shopt -s nullglob
+          for f in "$src"/*.txt; do
+            bn="$(basename "$f")"
+            base="${bn%.txt}"
+            dest="$out/${base}.srs"
+            tmp_json="$(mktemp)"
+            if test -s "$f"; then
+              awk 'BEGIN { first=1; printf("{\"version\":3,\"rules\":[{\"ip_cidr\":[") } { if (first==0) printf(", "); printf("\"%s\"", $0); first=0 } END { printf("]}]}") }' "$f" > "$tmp_json"
+            else
+              printf '{"version":3,"rules":[]}' > "$tmp_json"
+            fi
+            sing-box rule-set compile --output "$dest" "$tmp_json"
+            rm -f "$tmp_json"
+          done
+          shopt -u nullglob
+
+      # ============================================================
+      # MAIN → release + GitHub Release + CDN purge
+      # ============================================================
+      - name: MAIN Prepare release directory and archives
+        if: github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release/text release/mihomo release/sing-box
+          cp geoip/output/dat/*.dat release/
+          cp -f /tmp/geoip-text/*.txt release/text/
+          cp -a /tmp/mihomo/rulesets/. release/mihomo/
+          cp -a /tmp/sing-box/rulesets/. release/sing-box/
+          tar -czf /tmp/text.tar.gz -C release text
+          tar -czf /tmp/mihomo.tar.gz -C release mihomo
+          tar -czf /tmp/sing-box.tar.gz -C release sing-box
+          sha256sum release/geoip.dat > release/geoip.dat.sha256
+
+      - name: MAIN Push to release branch and update main
+        if: github.ref_name == 'main'
+        run: |
+          cd release || exit 1
+          git init
+          git config --local user.name "kirilllavrov"
+          git config --local user.email "kirilllavrov@users.noreply.github.com"
+          git checkout -b release
+          git add -A
+          git commit -m "Release $(date -u +%Y%m%d)"
+          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git push -f -u origin release
+          cd ..
+
+      - name: MAIN Publish GitHub Release
+        if: github.ref_name == 'main'
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: geoip-${{ github.run_number }}
+          tag_name: v${{ github.run_number }}
           name: GeoIP build
           body: |
             Автоматическая сборка geoip для Xray (Sing-box)
@@ -79,6 +232,22 @@ jobs:
 
             🌐 jsDelivr CDN:
             ```
-            https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat
+            https://cdn.jsdelivr.net/gh/${{ github.repository }}@release/geoip.dat
             ```
-          files: output/geoip.dat
+          files: |
+            release/*.dat
+            release/*.dat.sha256
+            /tmp/mihomo.tar.gz
+            /tmp/sing-box.tar.gz
+            /tmp/text.tar.gz
+
+      - name: MAIN Purge CDN
+        if: github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          cd release || exit 1
+          find . -type f -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
+            rel="${f#./}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}/release/${rel}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${rel}"
+          done
