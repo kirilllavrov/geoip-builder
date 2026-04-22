@@ -73,8 +73,10 @@ jobs:
         working-directory: geoip
         run: |
           set -euo pipefail
-          python3 -c "import json; d=json.load(open('config.json')); assert 'input' in d and 'output' in d"
+          python3 -c "import json,sys; d=json.load(open('config.json')); sys.exit(0 if ('input' in d and 'output' in d) else 1)"
           test -s direct.txt
+          test -s private.txt
+
 
       - name: Generate geoip artifacts
         working-directory: geoip
