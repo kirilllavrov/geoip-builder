@@ -45,13 +45,6 @@
 }
 ```
 
-### 3. Проверка категорий
-
-```bash
-# Просмотр списка категорий в готовом geoip.dat
-curl -sL https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/text/ | grep -E "ru|private"
-```
-
 ## 🧩 Совместимость
 
 | Клиент | Поддержка | Пример правила |
@@ -71,9 +64,4 @@ curl -sL https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/text/ | 
 |--------|------------|----------|
 | [v2fly/geoip](https://github.com/v2fly/geoip) | Инструмент сборки | MIT |
 | [hydraponique/roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip) | Исходная конфигурация | MIT |
-| [MaxMind GeoLite2](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) | Геоданные | CC BY-SA 4.0 |
-| [DB-IP](https://db-ip.com/db/free/ip-to-country.php) | Геоданные | CC BY 4.0 |
-| [ipinfo.io](https://ipinfo.io) | Геоданные | — |
-| [Re:filter](https://github.com/1andrevich/Re-filter-lists) | Списки фильтрации | — |
-| [Antifilter](https://antifilter.download) | Списки фильтрации | — |
-| [CDN-RuleSet](https://github.com/PentiumB/CDN-RuleSet) | CDN IP-базы | — |
+
