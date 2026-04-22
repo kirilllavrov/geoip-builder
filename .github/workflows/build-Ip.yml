@@ -43,7 +43,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: geoip/go.mod
-          cache: true
+          cache: false
 
       # ============================
       # Download input lists
