@@ -21,7 +21,8 @@
     {
       "type": "v2rayGeoIPDat",
       "args": {
-        "outputDir": "./output/dat"
+        "outputDir": "./output/dat",
+        "wantedList": ["ru", "private"]
       }
     },
     {
