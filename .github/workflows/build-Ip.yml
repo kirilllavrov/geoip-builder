@@ -25,40 +25,44 @@ jobs:
 
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Checkout v2fly/geoip
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: v2fly/geoip
           path: geoip
           fetch-depth: 1
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v5
         with:
           go-version-file: geoip/go.mod
           cache: true
-          cache-dependency-path: geoip/go.sum
 
-      - name: Download direct.txt (RU category)
+      # ============================
+      # Download input lists
+      # ============================
+      - name: Download direct.txt (RU)
         working-directory: geoip
         run: |
           set -euo pipefail
           ${{ env.CURL }} -o direct.txt \
             https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
 
-      - name: Download private.txt (PRIVATE category)
+      - name: Download private.txt (PRIVATE)
         working-directory: geoip
         run: |
           set -euo pipefail
           ${{ env.CURL }} -o private.txt \
             https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt
 
-      # Используем config.json из репозитория
-      - name: Copy config.json from repository
+      # ============================
+      # Use config.json from repo
+      # ============================
+      - name: Copy config.json
         run: |
           cp -f config.json geoip/config.json
 
@@ -69,14 +73,13 @@ jobs:
           go mod download
           go build -o geoip
 
-      - name: Validate config.json and input files
+      - name: Validate inputs
         working-directory: geoip
         run: |
           set -euo pipefail
           python3 -c "import json,sys; d=json.load(open('config.json')); sys.exit(0 if ('input' in d and 'output' in d) else 1)"
           test -s direct.txt
           test -s private.txt
-
 
       - name: Generate geoip artifacts
         working-directory: geoip
@@ -86,52 +89,87 @@ jobs:
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      - name: MAIN Prepare release directory
-        if: github.ref_name == 'main'
+      # ============================
+      # Prepare temp release files
+      # ============================
+      - name: Prepare temp release files
         run: |
-          set -euo pipefail
-          rm -rf release
-          mkdir -p release
-          cp geoip/output/dat/geoip.dat release/
-          sha256sum release/geoip.dat > release/geoip.dat.sha256
+          mkdir -p /tmp/geoip-release
+          cp geoip/output/dat/geoip.dat /tmp/geoip-release/geoip.dat
+          sha256sum /tmp/geoip-release/geoip.dat > /tmp/geoip-release/geoip.dat.sha256
 
-      - name: MAIN Push to release branch
-        if: github.ref_name == 'main'
+      # ============================
+      # Publish to release branch (correct way)
+      # ============================
+      - name: Publish to release branch
         run: |
-          cd release || exit 1
-          git init
-          git config --local user.name "kirilllavrov"
-          git config --local user.email "kirilllavrov@users.noreply.github.com"
-          git checkout -b release
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          git fetch origin
+
+          if git show-ref --verify --quiet refs/heads/release; then
+            git checkout release
+          elif git show-ref --verify --quiet refs/remotes/origin/release; then
+            git checkout -b release origin/release
+          else
+            git checkout --orphan release
+          fi
+
+          git rm -rf . >/dev/null 2>&1 || true
+          git clean -fdx
+
+          cp /tmp/geoip-release/geoip.dat ./geoip.dat
+          cp /tmp/geoip-release/geoip.dat.sha256 ./geoip.dat.sha256
+
           git add geoip.dat geoip.dat.sha256
-          git commit -m "Release $(date -u +%Y%m%d)"
-          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
-          git push -f -u origin release
 
-      - name: MAIN Publish GitHub Release
-        if: github.ref_name == 'main'
-        uses: softprops/action-gh-release@v1
+          if ! git diff --staged --quiet; then
+            git commit -m "build: update geoip files ($(date +%Y-%m-%d))"
+            git push origin HEAD:release --force
+          else
+            echo "✅ Файлы без изменений"
+          fi
+
+      # ============================
+      # Restore files for GitHub Release
+      # ============================
+      - name: Restore files for GitHub Release
+        run: |
+          mkdir -p output
+          cp /tmp/geoip-release/geoip.dat output/geoip.dat
+          cp /tmp/geoip-release/geoip.dat.sha256 output/geoip.dat.sha256
+
+      # ============================
+      # Create GitHub Release
+      # ============================
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
-          name: GeoIP build
+          name: GeoIP build #${{ github.run_number }}
           body: |
-            Автоматическая сборка GeoIP для Xray / Sing-box
+            Автоматическая сборка GeoIP для Xray/Sing-box
 
             🔄 Run: #${{ github.run_number }}
             🔗 Commit: ${{ github.sha }}
 
             📦 Форматы:
-            - geoip.dat (V2Ray / Xray / Sing-box)
+            - geoip.dat (V2Ray/Xray/Sing-box)
 
             🌐 jsDelivr CDN:
-            https://cdn.jsdelivr.net/gh/${{ github.repository }}@release/geoip.dat
+            ```
+            https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat
+            ```
           files: |
-            release/geoip.dat
-            release/geoip.dat.sha256
+            output/geoip.dat
+            output/geoip.dat.sha256
+          fail_on_unmatched_files: true
+          make_latest: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: MAIN Purge CDN
-        if: github.ref_name == 'main'
+      - name: Return to main branch
         run: |
-          set -euo pipefail
-          ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}/release/geoip.dat"
-          ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}/release/geoip.dat.sha256"
+          git checkout main
