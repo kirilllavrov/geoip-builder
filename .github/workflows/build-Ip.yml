@@ -43,13 +43,19 @@ jobs:
           cache: true
           cache-dependency-path: geoip/go.sum
 
-      # direct.txt → категория ru
       - name: Download direct.txt (RU category)
         working-directory: geoip
         run: |
           set -euo pipefail
           ${{ env.CURL }} -o direct.txt \
             https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
+
+      - name: Download private.txt (PRIVATE category)
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          ${{ env.CURL }} -o private.txt \
+            https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt
 
       # Используем config.json из репозитория
       - name: Copy config.json from repository

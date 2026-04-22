@@ -7,6 +7,14 @@
         "name": "ru",
         "uri": "./direct.txt"
       }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "private",
+        "uri": "./private.txt"
+      }
     }
   ],
   "output": [
