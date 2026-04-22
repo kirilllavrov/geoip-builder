@@ -43,9 +43,7 @@ jobs:
           cache: true
           cache-dependency-path: geoip/go.sum
 
-      # ============================================================
       # direct.txt → категория ru
-      # ============================================================
       - name: Download direct.txt (RU category)
         working-directory: geoip
         run: |
@@ -53,9 +51,7 @@ jobs:
           ${{ env.CURL }} -o direct.txt \
             https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
 
-      # ============================================================
       # Используем config.json из репозитория
-      # ============================================================
       - name: Copy config.json from repository
         run: |
           cp -f config.json geoip/config.json
@@ -71,11 +67,7 @@ jobs:
         working-directory: geoip
         run: |
           set -euo pipefail
-          python3 - << 'EOF'
-import json
-d = json.load(open('config.json'))
-assert 'input' in d and 'output' in d
-EOF
+          python3 -c "import json; d=json.load(open('config.json')); assert 'input' in d and 'output' in d"
           test -s direct.txt
 
       - name: Generate geoip artifacts
@@ -86,9 +78,6 @@ EOF
           ./geoip -c config.json
           ls -l output/dat/*.dat
 
-      # ============================================================
-      # MAIN → release + GitHub Release + CDN purge
-      # ============================================================
       - name: MAIN Prepare release directory
         if: github.ref_name == 'main'
         run: |
