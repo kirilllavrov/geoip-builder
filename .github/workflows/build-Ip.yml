@@ -146,6 +146,10 @@ jobs:
       # ============================
       # Create GitHub Release (GH_PAT)
       # ============================
+      - name: Read SHA256
+        id: sha256
+        run: echo "SHA256=$(cat output/geoip.dat.sha256)" >> $GITHUB_ENV
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -166,7 +170,7 @@ jobs:
             ```
             🔑 SHA256:
             ```
-            $(cat output/geoip.dat.sha256)
+            ${{ env.SHA256 }}
             ```
           files: |
             output/geoip.dat
