@@ -102,7 +102,7 @@ jobs:
           sha256sum /tmp/geoip-release/geoip.dat | awk '{print $1}' > /tmp/geoip-release/geoip.dat.sha256sum
 
       # ============================
-      # Publish to release branch (correct way)
+      # Publish to release branch
       # ============================
       - name: Publish to release branch
         run: |
@@ -144,7 +144,7 @@ jobs:
           cp /tmp/geoip-release/geoip.dat.sha256sum output/geoip.dat.sha256sum
 
       # ============================
-      # Create GitHub Release (GH_PAT)
+      # Create GitHub Release
       # ============================
       - name: Read SHA256
         id: sha256
