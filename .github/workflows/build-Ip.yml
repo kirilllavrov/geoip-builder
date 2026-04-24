@@ -99,7 +99,7 @@ jobs:
         run: |
           mkdir -p /tmp/geoip-release
           cp geoip/output/dat/geoip.dat /tmp/geoip-release/geoip.dat
-          sha256sum /tmp/geoip-release/geoip.dat > /tmp/geoip-release/geoip.dat.sha256
+          sha256sum /tmp/geoip-release/geoip.dat | awk '{print $1}' > /tmp/geoip-release/geoip.dat.sha256sum
 
       # ============================
       # Publish to release branch (correct way)
@@ -123,7 +123,7 @@ jobs:
           git clean -fdx
 
           cp /tmp/geoip-release/geoip.dat ./geoip.dat
-          cp /tmp/geoip-release/geoip.dat.sha256 ./geoip.dat.sha256sum
+          cp /tmp/geoip-release/geoip.dat.sha256sum ./geoip.dat.sha256sum
 
           git add geoip.dat geoip.dat.sha256sum
 
@@ -141,14 +141,14 @@ jobs:
         run: |
           mkdir -p output
           cp /tmp/geoip-release/geoip.dat output/geoip.dat
-          cp /tmp/geoip-release/geoip.dat.sha256 output/geoip.dat.sha256sum
+          cp /tmp/geoip-release/geoip.dat.sha256sum output/geoip.dat.sha256sum
 
       # ============================
       # Create GitHub Release (GH_PAT)
       # ============================
       - name: Read SHA256
         id: sha256
-        run: echo "SHA256=$(cat   output/geoip.dat.sha256sum)" >> $GITHUB_ENV
+        run: echo "SHA256=$(cat output/geoip.dat.sha256sum)" >> $GITHUB_ENV
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -174,7 +174,7 @@ jobs:
             ```
           files: |
             output/geoip.dat
-              output/geoip.dat.sha256sum
+            output/geoip.dat.sha256sum
           fail_on_unmatched_files: true
           make_latest: true
           overwrite_files: true
