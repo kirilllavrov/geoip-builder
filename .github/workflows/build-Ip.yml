@@ -164,6 +164,10 @@ jobs:
             ```
             https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat
             ```
+            🔑 SHA256:
+            ```
+            $(cat output/geoip.dat.sha256)
+            ```
           files: |
             output/geoip.dat
             output/geoip.dat.sha256
