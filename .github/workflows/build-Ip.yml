@@ -172,13 +172,22 @@ jobs:
             exit 0
           fi
 
-          # 2. Сбрасываем кэш CDN с проверкой результата.
-          #    jsDelivr троттлит частые purge, поэтому попытки разнесены по времени.
+          # 2. Если CDN уже отдаёт актуальный файл — purge не нужен.
+          ACTUAL="$(curl -fsSL "$CDN" | sha256sum | awk '{print $1}')"
+          if [ "$ACTUAL" = "$EXPECTED" ]; then
+            echo "✅ jsDelivr уже отдаёт актуальный файл, purge не требуется"
+            exit 0
+          fi
+          echo "CDN отдаёт $ACTUAL, требуется purge"
+
+          # 3. Сбрасываем кэш CDN с проверкой результата.
+          #    jsDelivr троттлит частые purge — при троттлинге повторять бессмысленно.
           for i in 1 2 3; do
             curl -fsSL "$PURGE" > /tmp/purge.json || echo "⚠️ purge API недоступен"
             if grep -q '"throttled": *true' /tmp/purge.json 2>/dev/null; then
-              echo "⚠️ purge throttled:"
+              echo "⚠️ purge throttled, повторные попытки бесполезны:"
               cat /tmp/purge.json
+              break
             fi
             sleep 20
             ACTUAL="$(curl -fsSL "$CDN" | sha256sum | awk '{print $1}')"
