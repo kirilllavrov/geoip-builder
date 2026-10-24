@@ -62,6 +62,13 @@ jobs:
           curl -fsSL -o private.txt \
             https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt
 
+      - name: Download IP-whitelist.txt (WHITELIST)
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          curl -fsSL -o IP-whitelist.txt \
+            https://raw.githubusercontent.com/kirilllavrov/whitelists/refs/heads/main/release/IP-whitelist.txt
+
       # ============================
       # Copy config.json (with wantedList)
       # ============================
@@ -83,6 +90,7 @@ jobs:
           python3 -c "import json,sys; d=json.load(open('config.json')); sys.exit(0 if ('input' in d and 'output' in d) else 1)"
           test -s direct.txt
           test -s private.txt
+          test -s IP-whitelist.txt
 
       - name: Generate geoip artifacts
         working-directory: geoip

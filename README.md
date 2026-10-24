@@ -13,6 +13,7 @@
 |-----------|----------|-----------|
 | **`ru`** | IP-адреса России и Беларуси | GeoLite2, DB-IP, ipinfo, countrydb + кастомные списки |
 | **`private`** | RFC1918 приватные сети | Локальные диапазоны (10.0.0.0/8, 192.168.0.0/16 и др.) |
+| **`whitelist`** | Белый список IP-адресов (доверенные/разрешённые сети) | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) |
 
 > ⚠️ Из категории `ru` **исключаются** IP из списков антифильтров, CDN и трекеров.
 
@@ -37,7 +38,7 @@
     "rules": [
       {
         "type": "field",
-        "ip": ["geoip:ru", "geoip:private"],
+        "ip": ["geoip:ru", "geoip:private", "geoip:whitelist"],
         "outboundTag": "direct"
       }
     ]
@@ -49,7 +50,7 @@
 
 | Клиент | Поддержка | Пример правила |
 |--------|-----------|---------------|
-| **Xray / v2fly-core** | ✅ | `geoip:ru`, `geoip:private` |
+| **Xray / v2fly-core** | ✅ | `geoip:ru`, `geoip:private`, `geoip:whitelist` |
 | **Mihomo (Clash Meta)** | ✅ | `.mrs` rulesets |
 | **sing-box** | ✅ | `.srs` rulesets |
 | **Hysteria / Trojan** | ✅ | через Xray-ядро |
@@ -64,4 +65,5 @@
 |--------|------------|----------|
 | [v2fly/geoip](https://github.com/v2fly/geoip) | Инструмент сборки | MIT |
 | [hydraponique/roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip) | Исходная конфигурация | MIT |
+| [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) | Источник списка `whitelist` | — |
 
