@@ -143,19 +143,57 @@ jobs:
           fi
 
       # ============================
-      # Purge jsDelivr cache for @release
+      # Sync jsDelivr cache for @release
       # ============================
-      - name: Purge jsDelivr cache
+      - name: Sync jsDelivr cache
         run: |
           set -uo pipefail
-          for f in geoip.dat geoip.dat.sha256sum; do
-            echo "→ purge $f"
-            if ! curl -fsSL --retry 3 --retry-delay 5 \
-              "https://purge.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/$f"; then
-              echo "⚠️ purge failed for $f (не критично)"
+          RAW="https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat"
+          CDN="https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat"
+          PURGE="https://purge.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat"
+          EXPECTED="$(cat /tmp/geoip-release/geoip.dat.sha256sum)"
+
+          # 1. Ждём, пока origin (GitHub raw) начнёт отдавать новый файл.
+          #    Purge раньше этого закэширует устаревшую версию ещё на 12 часов.
+          RAW_OK=0
+          for i in $(seq 1 20); do
+            ACTUAL="$(curl -fsSL -H 'Cache-Control: no-cache' "$RAW" | sha256sum | awk '{print $1}')"
+            if [ "$ACTUAL" = "$EXPECTED" ]; then
+              echo "✅ raw отдаёт актуальный файл (проверка $i)"
+              RAW_OK=1
+              break
             fi
-            echo
+            echo "⏳ raw ещё отдаёт старую версию ($ACTUAL), ждём..."
+            sleep 15
           done
+
+          if [ "$RAW_OK" -ne 1 ]; then
+            echo "⚠️ GitHub raw не отдал новый файл — purge пропущен, кэш CDN обновится сам (s-maxage=12ч)"
+            exit 0
+          fi
+
+          # 2. Сбрасываем кэш CDN с проверкой результата.
+          #    jsDelivr троттлит частые purge, поэтому попытки разнесены по времени.
+          for i in 1 2 3; do
+            curl -fsSL "$PURGE" > /tmp/purge.json || echo "⚠️ purge API недоступен"
+            if grep -q '"throttled": *true' /tmp/purge.json 2>/dev/null; then
+              echo "⚠️ purge throttled:"
+              cat /tmp/purge.json
+            fi
+            sleep 20
+            ACTUAL="$(curl -fsSL "$CDN" | sha256sum | awk '{print $1}')"
+            if [ "$ACTUAL" = "$EXPECTED" ]; then
+              echo "✅ jsDelivr отдаёт актуальный файл (попытка $i)"
+              curl -fsSL "https://purge.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat.sha256sum" > /dev/null || true
+              exit 0
+            fi
+            echo "⏳ jsDelivr ещё отдаёт старую версию ($ACTUAL), попытка $i"
+            sleep 20
+          done
+
+          echo "⚠️ jsDelivr не обновился за отведённое время (кэш ветки до 12ч)."
+          echo "   Актуальный файл без кэша: https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat"
+          echo "   Зеркало jsDelivr без устаревшего кэша: https://gcore.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat"
 
       # ============================
       # Restore files for GitHub Release

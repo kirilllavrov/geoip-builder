@@ -29,8 +29,9 @@
 |----------|-----|
 | **GitHub (прямой)** | `https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat` |
 | **jsDelivr CDN** | `https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat` |
+| **jsDelivr (зеркало)** | `https://gcore.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat` |
 
-> ℹ️ После каждой сборки workflow автоматически сбрасывает кэш jsDelivr для ветки `@release`, поэтому CDN отдаёт актуальный файл сразу. Проверить целостность можно по `geoip.dat.sha256sum` рядом с файлом.
+> ℹ️ Ветка `@release` в jsDelivr кэшируется до 12 часов. Workflow после каждой сборки сбрасывает кэш и проверяет, что CDN отдаёт новый файл; если обновление не удалось (jsDelivr троттлит частые сбросы), используйте прямой GitHub-URL или зеркало `gcore`. Целостность проверяйте по `geoip.dat.sha256sum`.
 
 ### 2. Настройка маршрутизации (Xray/V2Ray)
 
@@ -68,4 +69,3 @@
 | [v2fly/geoip](https://github.com/v2fly/geoip) | Инструмент сборки | MIT |
 | [hydraponique/roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip) | Исходная конфигурация | MIT |
 | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) | Источник списка `whitelist` | — |
-
