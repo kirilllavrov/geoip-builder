@@ -1,0 +1,9 @@
+.codebase-memory/
+.vscode/
+AGENTS.md
+.github/instructions/
+.github/copilot-instructions.md
+.mcp.json
+
+__pycache__/
+*.pyc
