@@ -143,6 +143,21 @@ jobs:
           fi
 
       # ============================
+      # Purge jsDelivr cache for @release
+      # ============================
+      - name: Purge jsDelivr cache
+        run: |
+          set -uo pipefail
+          for f in geoip.dat geoip.dat.sha256sum; do
+            echo "→ purge $f"
+            if ! curl -fsSL --retry 3 --retry-delay 5 \
+              "https://purge.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/$f"; then
+              echo "⚠️ purge failed for $f (не критично)"
+            fi
+            echo
+          done
+
+      # ============================
       # Restore files for GitHub Release
       # ============================
       - name: Restore files for GitHub Release

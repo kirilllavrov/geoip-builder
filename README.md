@@ -30,6 +30,8 @@
 | **GitHub (прямой)** | `https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat` |
 | **jsDelivr CDN** | `https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat` |
 
+> ℹ️ После каждой сборки workflow автоматически сбрасывает кэш jsDelivr для ветки `@release`, поэтому CDN отдаёт актуальный файл сразу. Проверить целостность можно по `geoip.dat.sha256sum` рядом с файлом.
+
 ### 2. Настройка маршрутизации (Xray/V2Ray)
 
 ```json
