@@ -2,6 +2,11 @@ name: Build geoip
 
 on:
   workflow_dispatch:
+    inputs:
+      force_upload:
+        description: "Выгрузить geoip.dat в Yandex Object Storage, даже если файл не изменился"
+        type: boolean
+        default: false
   schedule:
     - cron: '0 5 */3 * *'
   push:
@@ -181,7 +186,7 @@ jobs:
       # Нужны секреты YC_S3_KEY_ID и YC_S3_SECRET — Key ID и Secret статического
       # ключа сервисного аккаунта с ролью storage.uploader (только запись).
       - name: Check Yandex Object Storage secrets
-        if: steps.publish.outputs.changed == 'true'
+        if: steps.publish.outputs.changed == 'true' || inputs.force_upload == true
         env:
           YC_S3_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
           YC_S3_SECRET: ${{ secrets.YC_S3_SECRET }}
@@ -195,7 +200,7 @@ jobs:
           echo "Секреты найдены."
 
       - name: Upload geoip files to Yandex Object Storage
-        if: steps.publish.outputs.changed == 'true'
+        if: steps.publish.outputs.changed == 'true' || inputs.force_upload == true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET }}
