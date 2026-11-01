@@ -16,11 +16,23 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Сборка публикуется force-push'ем в ветку release, поэтому параллельные запуски
+# (schedule + push) не должны идти одновременно.
+concurrency:
+  group: build-geoip
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: write
+    env:
+      DIRECT_URL: https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
+      PRIVATE_URL: https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt
+      WHITELIST_URL: https://raw.githubusercontent.com/kirilllavrov/whitelists/refs/heads/main/release/IP-whitelist.txt
+      MAX_SOURCE_AGE_DAYS: 120
 
     steps:
       # ============================
@@ -48,26 +60,14 @@ jobs:
       # ============================
       # Download input lists
       # ============================
-      - name: Download direct.txt (RU)
+      - name: Download input lists
         working-directory: geoip
         run: |
           set -euo pipefail
-          curl -fsSL -o direct.txt \
-            https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
-
-      - name: Download private.txt (PRIVATE)
-        working-directory: geoip
-        run: |
-          set -euo pipefail
-          curl -fsSL -o private.txt \
-            https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt
-
-      - name: Download IP-whitelist.txt (WHITELIST)
-        working-directory: geoip
-        run: |
-          set -euo pipefail
-          curl -fsSL -o IP-whitelist.txt \
-            https://raw.githubusercontent.com/kirilllavrov/whitelists/refs/heads/main/release/IP-whitelist.txt
+          CURL="curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused"
+          $CURL -o direct.txt "$DIRECT_URL"
+          $CURL -o private.txt "$PRIVATE_URL"
+          $CURL -o IP-whitelist.txt "$WHITELIST_URL"
 
       # ============================
       # Copy config.json (with wantedList)
@@ -83,14 +83,41 @@ jobs:
           go mod download
           go build -o geoip
 
-      - name: Validate inputs
-        working-directory: geoip
+      - name: Validate inputs and record provenance
         run: |
           set -euo pipefail
-          python3 -c "import json,sys; d=json.load(open('config.json')); sys.exit(0 if ('input' in d and 'output' in d) else 1)"
-          test -s direct.txt
-          test -s private.txt
-          test -s IP-whitelist.txt
+          python3 scripts/validate_inputs.py geoip \
+            "direct.txt=$DIRECT_URL" \
+            "private.txt=$PRIVATE_URL" \
+            "IP-whitelist.txt=$WHITELIST_URL" \
+            --min-lines direct.txt=20000 \
+            --min-lines private.txt=10 \
+            --min-lines IP-whitelist.txt=1000
+
+      # Свежесть источников проверяется отдельно и только предупреждением:
+      # недоступность GitHub API или устаревший, но рабочий список не должны ломать сборку.
+      - name: Check source freshness (advisory)
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -uo pipefail
+          check() {
+            repo="$1"; path="$2"; branch="$3"
+            changed="$(gh api "repos/$repo/commits?path=$path&sha=$branch&per_page=1" \
+              --jq '.[0].commit.committer.date' 2>/dev/null || true)"
+            if [ -z "$changed" ]; then
+              echo "::warning::$repo/$path: не удалось определить дату последнего изменения"
+              return 0
+            fi
+            age=$(( ( $(date -u +%s) - $(date -u -d "$changed" +%s) ) / 86400 ))
+            echo "$repo/$path: изменён $changed, возраст $age дн."
+            if [ "$age" -gt "$MAX_SOURCE_AGE_DAYS" ]; then
+              echo "::warning::$repo/$path не обновлялся $age дн. (порог $MAX_SOURCE_AGE_DAYS дн.)"
+            fi
+          }
+          check hydraponique/roscomvpn-geoip text/direct.txt release
+          check hydraponique/roscomvpn-geoip text/private.txt release
+          check kirilllavrov/whitelists release/IP-whitelist.txt main
 
       - name: Generate geoip artifacts
         working-directory: geoip
@@ -107,12 +134,14 @@ jobs:
         run: |
           mkdir -p /tmp/geoip-release
           cp geoip/output/dat/geoip.dat /tmp/geoip-release/geoip.dat
+          cp geoip/sources.json /tmp/geoip-release/sources.json
           sha256sum /tmp/geoip-release/geoip.dat | awk '{print $1}' > /tmp/geoip-release/geoip.dat.sha256sum
 
       # ============================
       # Publish to release branch
       # ============================
       - name: Publish to release branch
+        id: publish
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
@@ -132,20 +161,24 @@ jobs:
 
           cp /tmp/geoip-release/geoip.dat ./geoip.dat
           cp /tmp/geoip-release/geoip.dat.sha256sum ./geoip.dat.sha256sum
+          cp /tmp/geoip-release/sources.json ./sources.json
 
-          git add geoip.dat geoip.dat.sha256sum
+          git add geoip.dat geoip.dat.sha256sum sources.json
 
           if ! git diff --staged --quiet; then
             git commit -m "build: update geoip files ($(date +%Y-%m-%d))"
             git push origin HEAD:release --force
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "✅ Файлы без изменений"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       # ============================
       # Sync jsDelivr cache for @release
       # ============================
       - name: Sync jsDelivr cache
+        if: steps.publish.outputs.changed == 'true'
         run: |
           set -uo pipefail
           RAW="https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat"
@@ -204,27 +237,36 @@ jobs:
           echo "   Актуальный файл без кэша: https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat"
           echo "   Зеркало jsDelivr без устаревшего кэша: https://gcore.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat"
 
+      - name: Set release tag
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: echo "TAG=v$(date +%Y%m%d)-$RUN_NUMBER" >> "$GITHUB_ENV"
+
       # ============================
       # Restore files for GitHub Release
       # ============================
       - name: Restore files for GitHub Release
+        if: steps.publish.outputs.changed == 'true'
         run: |
           mkdir -p output
           cp /tmp/geoip-release/geoip.dat output/geoip.dat
           cp /tmp/geoip-release/geoip.dat.sha256sum output/geoip.dat.sha256sum
+          cp /tmp/geoip-release/sources.json output/sources.json
 
       # ============================
       # Create GitHub Release
       # ============================
       - name: Read SHA256
         id: sha256
+        if: steps.publish.outputs.changed == 'true'
         run: echo "SHA256=$(cat output/geoip.dat.sha256sum)" >> $GITHUB_ENV
 
       - name: Create Release
+        if: steps.publish.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
-          name: GeoIP build #${{ github.run_number }}
+          tag_name: ${{ env.TAG }}
+          name: GeoIP build ${{ env.TAG }}
           body: |
             Автоматическая сборка GeoIP для Xray/Sing-box
 
@@ -232,7 +274,8 @@ jobs:
             🔗 Commit: ${{ github.sha }}
 
             📦 Форматы:
-            - geoip.dat (V2Ray/Xray/Sing-box)
+            - geoip.dat (V2Ray/Xray)
+            - sources.json (источники и sha256 входных списков)
 
             🌐 jsDelivr CDN:
             ```
@@ -245,6 +288,7 @@ jobs:
           files: |
             output/geoip.dat
             output/geoip.dat.sha256sum
+            output/sources.json
           fail_on_unmatched_files: true
           make_latest: true
           overwrite_files: true

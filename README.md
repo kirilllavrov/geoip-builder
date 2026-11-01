@@ -49,6 +49,31 @@
 }
 ```
 
+## 🔐 Происхождение данных и целостность
+
+Списки в репозитории не хранятся — они скачиваются на каждой сборке (см. `env` в [workflow](.github/workflows/build-Ip.yml)):
+
+| Файл | Источник | Что внутри |
+|------|----------|-----------|
+| `direct.txt` | [hydraponique/roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip) → `release/text/direct.txt` | сети РФ и Беларуси |
+| `private.txt` | тот же репозиторий → `release/text/private.txt` | RFC1918 и служебные диапазоны |
+| `IP-whitelist.txt` | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) → `main/release/IP-whitelist.txt` | проверенные IP российских сервисов |
+
+Рядом с `geoip.dat` в ветке `release` и в релизе публикуется `sources.json`:
+
+```json
+{
+  "schema": 1,
+  "sources": [
+    { "file": "direct.txt", "url": "https://...", "sha256": "...", "bytes": 606546, "cidr_count": 36884 }
+  ]
+}
+```
+
+Так можно установить, из каких именно версий списков собран конкретный `geoip.dat`. Временных меток в файле нет, поэтому он меняется только вместе с содержимым источников.
+
+Релиз создаётся **только при изменении опубликованных файлов** (`geoip.dat` или `sources.json`), тег имеет вид `vYYYYMMDD-<номер запуска>`. Если входные списки и результат не изменились, публикация и синхронизация CDN пропускаются.
+
 ## 🧩 Совместимость
 
 | Клиент | Поддержка | Пример правила |
