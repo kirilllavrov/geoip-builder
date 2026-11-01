@@ -175,6 +175,56 @@ jobs:
           fi
 
       # ============================
+      # Upload to Yandex Cloud Object Storage
+      # ============================
+      # Зеркало для раздачи geoip.dat из РФ: бакет Object Storage (S3 API).
+      # Нужны секреты YC_S3_KEY_ID и YC_S3_SECRET — Key ID и Secret статического
+      # ключа сервисного аккаунта с ролью storage.uploader (только запись).
+      - name: Check Yandex Object Storage secrets
+        if: steps.publish.outputs.changed == 'true'
+        env:
+          YC_S3_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
+          YC_S3_SECRET: ${{ secrets.YC_S3_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${YC_S3_KEY_ID:-}" ] || [ -z "${YC_S3_SECRET:-}" ]; then
+            echo "::error::Нужны секреты YC_S3_KEY_ID и YC_S3_SECRET."
+            echo "::error::Добавьте их в Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          echo "Секреты найдены."
+
+      - name: Upload geoip files to Yandex Object Storage
+        if: steps.publish.outputs.changed == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET }}
+          AWS_DEFAULT_REGION: ru-central1
+          BUCKET: flyz-cryp-olxn-mojw
+          OBJECT_PREFIX: geofiles
+          ENDPOINT: https://storage.yandexcloud.net
+        run: |
+          set -euo pipefail
+
+          # Выгружаем копии из /tmp, а не файлы из рабочего дерева: ветка release
+          # к этому шагу уже опубликована, и содержимое рабочей директории больше
+          # не является источником истины.
+          aws s3 cp /tmp/geoip-release/geoip.dat "s3://${BUCKET}/${OBJECT_PREFIX}/geoip.dat" \
+            --endpoint-url "$ENDPOINT" --only-show-errors
+          aws s3 cp /tmp/geoip-release/geoip.dat.sha256sum \
+            "s3://${BUCKET}/${OBJECT_PREFIX}/geoip.dat.sha256sum" \
+            --endpoint-url "$ENDPOINT" --content-type text/plain --only-show-errors
+
+          URL="https://storage.yandexcloud.net/${BUCKET}/${OBJECT_PREFIX}"
+          echo "Объект обновлён: ${URL}/geoip.dat"
+          {
+            echo "### Зеркало Yandex Object Storage"
+            echo ""
+            echo "- dat: \`${URL}/geoip.dat\`"
+            echo "- sha256: \`$(cat /tmp/geoip-release/geoip.dat.sha256sum)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ============================
       # Sync jsDelivr cache for @release
       # ============================
       - name: Sync jsDelivr cache

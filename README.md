@@ -28,6 +28,7 @@
 | Источник | URL |
 |----------|-----|
 | **GitHub (прямой)** | `https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat` |
+| **Yandex Object Storage** | `https://storage.yandexcloud.net/flyz-cryp-olxn-mojw/geofiles/geoip.dat` |
 | **jsDelivr CDN** | `https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat` |
 | **jsDelivr (зеркало)** | `https://gcore.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat` |
 
