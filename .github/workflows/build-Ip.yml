@@ -205,8 +205,8 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET }}
           AWS_DEFAULT_REGION: ru-central1
-          BUCKET: flyz-cryp-olxn-mojw
-          OBJECT_PREFIX: geofiles
+          BUCKET: xpower
+          OBJECT_PREFIX: GEO
           ENDPOINT: https://storage.yandexcloud.net
         run: |
           set -euo pipefail
