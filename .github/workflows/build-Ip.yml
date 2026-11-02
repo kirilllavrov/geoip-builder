@@ -185,8 +185,35 @@ jobs:
       # Зеркало для раздачи geoip.dat из РФ: бакет Object Storage (S3 API).
       # Нужны секреты YC_S3_KEY_ID и YC_S3_SECRET — Key ID и Secret статического
       # ключа сервисного аккаунта с ролью storage.uploader (только запись).
+      # Проверка наличия объектов в бакете. Нужна потому, что `changed` говорит
+      # только об изменении файлов в release-ветке: после смены бакета файл там
+      # «не изменился», выгрузка пропускалась, и geoip.dat в новом бакете так и
+      # не появился (проверено 02.11.2026 — объект отвечал 404).
+      # Смотрим публичный URL, а не S3 API: сервисному аккаунту выдана только
+      # роль storage.uploader, право чтения объектов ему намеренно не дано,
+      # поэтому head-object вернул бы 403 вместо 404.
+      - name: Check objects presence in the bucket
+        id: remote
+        env:
+          BUCKET: xpower
+          OBJECT_PREFIX: GEO
+          ENDPOINT: https://storage.yandexcloud.net
+        run: |
+          set -euo pipefail
+          BASE="${ENDPOINT}/${BUCKET}/${OBJECT_PREFIX}"
+          missing=0
+          for f in geoip.dat geoip.dat.sha256sum; do
+            if curl -sfI -m 15 "${BASE}/${f}" >/dev/null 2>&1; then
+              echo "✅ ${f} уже в бакете"
+            else
+              echo "::warning::${f} отсутствует в бакете (${BASE}/${f}) — выгрузка нужна несмотря на changed=false"
+              missing=1
+            fi
+          done
+          echo "missing=${missing}" >> "$GITHUB_OUTPUT"
+
       - name: Check Yandex Object Storage secrets
-        if: steps.publish.outputs.changed == 'true' || inputs.force_upload == true
+        if: steps.publish.outputs.changed == 'true' || steps.remote.outputs.missing == '1' || inputs.force_upload == true
         env:
           YC_S3_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
           YC_S3_SECRET: ${{ secrets.YC_S3_SECRET }}
@@ -200,7 +227,7 @@ jobs:
           echo "Секреты найдены."
 
       - name: Upload geoip files to Yandex Object Storage
-        if: steps.publish.outputs.changed == 'true' || inputs.force_upload == true
+        if: steps.publish.outputs.changed == 'true' || steps.remote.outputs.missing == '1' || inputs.force_upload == true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET }}
