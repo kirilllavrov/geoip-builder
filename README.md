@@ -58,7 +58,7 @@
 |------|----------|-----------|
 | `direct.txt` | [hydraponique/roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip) → `release/text/direct.txt` | сети РФ и Беларуси |
 | `private.txt` | тот же репозиторий → `release/text/private.txt` | RFC1918 и служебные диапазоны |
-| `IP-whitelist.txt` | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) → `main/release/IP-whitelist.txt` | проверенные IP российских сервисов |
+| `IP-whitelist.txt` | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) → `main/release/IP-whitelist-common.txt` | проверенные IP российских сервисов |
 
 Рядом с `geoip.dat` в ветке `release` и в релизе публикуется `sources.json`:
 

@@ -97,7 +97,7 @@ jobs:
             "IP-whitelist.txt=$WHITELIST_URL" \
             --min-lines direct.txt=20000 \
             --min-lines private.txt=10 \
-            --min-lines IP-whitelist.txt=1000
+            --min-lines IP-whitelist.txt=300
 
       # Свежесть источников проверяется отдельно и только предупреждением:
       # недоступность GitHub API или устаревший, но рабочий список не должны ломать сборку.
@@ -122,7 +122,7 @@ jobs:
           }
           check hydraponique/roscomvpn-geoip text/direct.txt release
           check hydraponique/roscomvpn-geoip text/private.txt release
-          check kirilllavrov/whitelists release/IP-whitelist.txt main
+          check kirilllavrov/whitelists release/IP-whitelist-common.txt main
 
       - name: Generate geoip artifacts
         working-directory: geoip
