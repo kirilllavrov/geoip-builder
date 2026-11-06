@@ -36,7 +36,7 @@ jobs:
     env:
       DIRECT_URL: https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt
       PRIVATE_URL: https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt
-      WHITELIST_URL: https://raw.githubusercontent.com/kirilllavrov/whitelists/refs/heads/main/release/IP-whitelist.txt
+      WHITELIST_URL: https://raw.githubusercontent.com/kirilllavrov/whitelists/refs/heads/main/release/IP-whitelist-common.txt
       MAX_SOURCE_AGE_DAYS: 120
 
     steps:
