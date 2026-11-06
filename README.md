@@ -10,7 +10,7 @@
 ## 📦 Категории в geoip.dat
 
 | Категория | Описание | Источники |
-|-----------|----------|-----------|
+| ----------- | ---------- | ----------- |
 | **`ru`** | IP-адреса России и Беларуси | GeoLite2, DB-IP, ipinfo, countrydb + кастомные списки |
 | **`private`** | RFC1918 приватные сети | Локальные диапазоны (10.0.0.0/8, 192.168.0.0/16 и др.) |
 | **`whitelist`** | Белый список IP-адресов (доверенные/разрешённые сети) | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) |
@@ -26,7 +26,7 @@
 Добавьте URL в конфигурацию вашего прокси-клиента:
 
 | Источник | URL |
-|----------|-----|
+| ---------- | ----- |
 | **GitHub (прямой)** | `https://raw.githubusercontent.com/kirilllavrov/geoip-builder/release/geoip.dat` |
 | **Yandex Object Storage** | `https://storage.yandexcloud.net/flyz-cryp-olxn-mojw/geofiles/geoip.dat` |
 | **jsDelivr CDN** | `https://cdn.jsdelivr.net/gh/kirilllavrov/geoip-builder@release/geoip.dat` |
@@ -55,7 +55,7 @@
 Списки в репозитории не хранятся — они скачиваются на каждой сборке (см. `env` в [workflow](.github/workflows/build-Ip.yml)):
 
 | Файл | Источник | Что внутри |
-|------|----------|-----------|
+| ------ | ---------- | ----------- |
 | `direct.txt` | [hydraponique/roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip) → `release/text/direct.txt` | сети РФ и Беларуси |
 | `private.txt` | тот же репозиторий → `release/text/private.txt` | RFC1918 и служебные диапазоны |
 | `IP-whitelist.txt` | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) → `main/release/IP-whitelist-common.txt` | проверенные IP российских сервисов |
@@ -78,7 +78,7 @@
 ## 🧩 Совместимость
 
 | Клиент | Поддержка | Пример правила |
-|--------|-----------|---------------|
+| -------- | ----------- | --------------- |
 | **Xray / v2fly-core** | ✅ | `geoip:ru`, `geoip:private`, `geoip:whitelist` |
 | **Mihomo (Clash Meta)** | ✅ | `.mrs` rulesets |
 | **sing-box** | ✅ | `.srs` rulesets |
@@ -91,7 +91,7 @@
 Проект использует данные и инструменты:
 
 | Ресурс | Назначение | Лицензия |
-|--------|------------|----------|
+| -------- | ------------ | ---------- |
 | [v2fly/geoip](https://github.com/v2fly/geoip) | Инструмент сборки | MIT |
 | [hydraponique/roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip) | Исходная конфигурация | MIT |
 | [kirilllavrov/whitelists](https://github.com/kirilllavrov/whitelists) | Источник списка `whitelist` | — |
