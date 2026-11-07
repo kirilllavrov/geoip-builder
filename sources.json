@@ -2,10 +2,10 @@
   "schema": 1,
   "sources": [
     {
-      "bytes": 604104,
-      "cidr_count": 36730,
+      "bytes": 605651,
+      "cidr_count": 36822,
       "file": "direct.txt",
-      "sha256": "fd411ab0c41390aa03b56d18eb6ce4ba00ce06912e5d1f7b850b76ee6b7ca352",
+      "sha256": "67d1a117431a904f649221e512c083c858584f86e55961e91a19aa22e6706f49",
       "url": "https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/direct.txt"
     },
     {
@@ -16,10 +16,10 @@
       "url": "https://raw.githubusercontent.com/hydraponique/roscomvpn-geoip/refs/heads/release/text/private.txt"
     },
     {
-      "bytes": 5321,
-      "cidr_count": 372,
+      "bytes": 4946,
+      "cidr_count": 346,
       "file": "IP-whitelist.txt",
-      "sha256": "65ec016966c581f92afa08e8050baf43af2da68022fabdd50fe79da165dd9a66",
+      "sha256": "942c7744f814a03bc64f4d8080f4daabcd604c6d75445e00437a6e21a61c9f23",
       "url": "https://raw.githubusercontent.com/kirilllavrov/whitelists/refs/heads/main/release/IP-whitelist-common.txt"
     }
   ]
